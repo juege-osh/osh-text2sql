@@ -15,11 +15,13 @@ import com.osh.text2sql.dto.QueryResponse;
 import com.osh.text2sql.dto.WorkspaceSnapshotResponse;
 import com.osh.text2sql.exception.BadRequestException;
 import com.osh.text2sql.executor.ElasticsearchQueryExecutor;
+import com.osh.text2sql.executor.KafkaQueryExecutor;
 import com.osh.text2sql.executor.MysqlQueryExecutor;
 import com.osh.text2sql.executor.QueryExecutor;
 import com.osh.text2sql.executor.RedisQueryExecutor;
 import com.osh.text2sql.introspect.DatasourceIntrospector;
 import com.osh.text2sql.introspect.ElasticsearchIntrospector;
+import com.osh.text2sql.introspect.KafkaIntrospector;
 import com.osh.text2sql.introspect.MysqlIntrospector;
 import com.osh.text2sql.introspect.RedisIntrospector;
 import org.slf4j.Logger;
@@ -37,9 +39,11 @@ public class Text2QueryService {
     private final MysqlIntrospector mysqlIntrospector;
     private final RedisIntrospector redisIntrospector;
     private final ElasticsearchIntrospector elasticsearchIntrospector;
+    private final KafkaIntrospector kafkaIntrospector;
     private final MysqlQueryExecutor mysqlQueryExecutor;
     private final RedisQueryExecutor redisQueryExecutor;
     private final ElasticsearchQueryExecutor elasticsearchQueryExecutor;
+    private final KafkaQueryExecutor kafkaQueryExecutor;
 
     public Text2QueryService(ConnectionProfileResolver profileResolver,
                              PromptService promptService,
@@ -47,18 +51,22 @@ public class Text2QueryService {
                              MysqlIntrospector mysqlIntrospector,
                              RedisIntrospector redisIntrospector,
                              ElasticsearchIntrospector elasticsearchIntrospector,
+                             KafkaIntrospector kafkaIntrospector,
                              MysqlQueryExecutor mysqlQueryExecutor,
                              RedisQueryExecutor redisQueryExecutor,
-                             ElasticsearchQueryExecutor elasticsearchQueryExecutor) {
+                             ElasticsearchQueryExecutor elasticsearchQueryExecutor,
+                             KafkaQueryExecutor kafkaQueryExecutor) {
         this.profileResolver = profileResolver;
         this.promptService = promptService;
         this.properties = properties;
         this.mysqlIntrospector = mysqlIntrospector;
         this.redisIntrospector = redisIntrospector;
         this.elasticsearchIntrospector = elasticsearchIntrospector;
+        this.kafkaIntrospector = kafkaIntrospector;
         this.mysqlQueryExecutor = mysqlQueryExecutor;
         this.redisQueryExecutor = redisQueryExecutor;
         this.elasticsearchQueryExecutor = elasticsearchQueryExecutor;
+        this.kafkaQueryExecutor = kafkaQueryExecutor;
     }
 
     public QueryResponse query(QueryRequest request) {
@@ -104,6 +112,7 @@ public class Text2QueryService {
         Text2SqlProperties.MysqlProperties mysql = properties.getDatasources().getMysql();
         Text2SqlProperties.RedisProperties redis = properties.getDatasources().getRedis();
         Text2SqlProperties.ElasticsearchProperties elasticsearch = properties.getDatasources().getElasticsearch();
+        Text2SqlProperties.KafkaProperties kafka = properties.getDatasources().getKafka();
         return WorkspaceSnapshotResponse.builder()
             .datasources(java.util.List.of(
                 DatasourceOverview.builder()
@@ -126,6 +135,13 @@ public class Text2QueryService {
                     .subtitle(elasticsearch.getBaseUrl())
                     .status("Ready")
                     .sampleTarget("osh_course_index, osh_tool_search, osh_book_search_read")
+                    .build(),
+                DatasourceOverview.builder()
+                    .type(DatasourceType.KAFKA)
+                    .title("Kafka")
+                    .subtitle(kafka.getBootstrapServers())
+                    .status("Ready")
+                    .sampleTarget("user-action, osh.tool.index, seckill.order.create")
                     .build()
             ))
             .suggestions(java.util.List.of(
@@ -148,6 +164,16 @@ public class Text2QueryService {
                     .type(DatasourceType.REDIS)
                     .title("查看 key")
                     .prompt("列出当前 Redis 数据库前 20 个 key")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.KAFKA)
+                    .title("查看主题")
+                    .prompt("列出当前 Kafka 集群的 topic 列表")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.KAFKA)
+                    .title("查看最近消息")
+                    .prompt("查看 user-action topic 最近 10 条消息")
                     .build()
             ))
             .build();
@@ -158,6 +184,7 @@ public class Text2QueryService {
             case MYSQL -> mysqlIntrospector;
             case REDIS -> redisIntrospector;
             case ELASTICSEARCH -> elasticsearchIntrospector;
+            case KAFKA -> kafkaIntrospector;
         };
     }
 
@@ -173,6 +200,7 @@ public class Text2QueryService {
             case MYSQL -> mysqlQueryExecutor;
             case REDIS -> redisQueryExecutor;
             case ELASTICSEARCH -> elasticsearchQueryExecutor;
+            case KAFKA -> kafkaQueryExecutor;
         };
     }
 }

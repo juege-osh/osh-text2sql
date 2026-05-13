@@ -19,4 +19,10 @@ public class ConnectionProfile {
     private String password;
 
     private String baseUrl;
+
+    private String bootstrapServers;
+
+    private String securityProtocol;
+
+    private String saslMechanism;
 }

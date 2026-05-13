@@ -29,6 +29,7 @@ public class Text2SqlProperties {
         private MysqlProperties mysql = new MysqlProperties();
         private RedisProperties redis = new RedisProperties();
         private ElasticsearchProperties elasticsearch = new ElasticsearchProperties();
+        private KafkaProperties kafka = new KafkaProperties();
     }
 
     @Data
@@ -59,6 +60,17 @@ public class Text2SqlProperties {
         private boolean enabled = true;
         @NotBlank
         private String baseUrl;
+        private String username;
+        private String password;
+    }
+
+    @Data
+    public static class KafkaProperties {
+        private boolean enabled = true;
+        @NotBlank
+        private String bootstrapServers;
+        private String securityProtocol = "PLAINTEXT";
+        private String saslMechanism;
         private String username;
         private String password;
     }

@@ -22,6 +22,7 @@ public class ConnectionProfileResolver {
             case MYSQL -> applyMysql(profile, incoming);
             case REDIS -> applyRedis(profile, incoming);
             case ELASTICSEARCH -> applyElasticsearch(profile, incoming);
+            case KAFKA -> applyKafka(profile, incoming);
             default -> throw new IllegalArgumentException("Unsupported type: " + type);
         }
         return profile;
@@ -49,6 +50,15 @@ public class ConnectionProfileResolver {
         target.setBaseUrl(resolveText(incoming == null ? null : incoming.getBaseUrl(), elasticsearch.getBaseUrl()));
         target.setUsername(resolveText(incoming == null ? null : incoming.getUsername(), elasticsearch.getUsername()));
         target.setPassword(resolveText(incoming == null ? null : incoming.getPassword(), elasticsearch.getPassword()));
+    }
+
+    private void applyKafka(ConnectionProfile target, ConnectionProfile incoming) {
+        Text2SqlProperties.KafkaProperties kafka = properties.getDatasources().getKafka();
+        target.setBootstrapServers(resolveText(incoming == null ? null : incoming.getBootstrapServers(), kafka.getBootstrapServers()));
+        target.setSecurityProtocol(resolveText(incoming == null ? null : incoming.getSecurityProtocol(), kafka.getSecurityProtocol()));
+        target.setSaslMechanism(resolveText(incoming == null ? null : incoming.getSaslMechanism(), kafka.getSaslMechanism()));
+        target.setUsername(resolveText(incoming == null ? null : incoming.getUsername(), kafka.getUsername()));
+        target.setPassword(resolveText(incoming == null ? null : incoming.getPassword(), kafka.getPassword()));
     }
 
     private String resolveText(String preferred, String fallback) {

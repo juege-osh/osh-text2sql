@@ -5,9 +5,14 @@ spring:
   application:
     name: osh-text2sql-backend
   ai:
+    chat:
+      client:
+        enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:false}
     dashscope:
+      enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:false}
       api-key: ${OSH_TEXT2SQL_DASHSCOPE_API_KEY:}
       chat:
+        enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:false}
         options:
           model: ${OSH_TEXT2SQL_DASHSCOPE_MODEL:qwen-plus}
 
@@ -42,6 +47,13 @@ osh:
         base-url: ${OSH_TEXT2SQL_ES_BASE_URL:http://127.0.0.1:9200}
         username: ${OSH_TEXT2SQL_ES_USERNAME:}
         password: ${OSH_TEXT2SQL_ES_PASSWORD:}
+      kafka:
+        enabled: true
+        bootstrap-servers: ${OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS:43.242.200.25:9092}
+        security-protocol: ${OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+        sasl-mechanism: ${OSH_TEXT2SQL_KAFKA_SASL_MECHANISM:}
+        username: ${OSH_TEXT2SQL_KAFKA_USERNAME:}
+        password: ${OSH_TEXT2SQL_KAFKA_PASSWORD:}
 
 logging:
   level:

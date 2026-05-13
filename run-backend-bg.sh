@@ -7,6 +7,7 @@ LOG_DIR="$ROOT_DIR/.logs"
 PID_FILE="$LOG_DIR/backend.pid"
 LOG_FILE="$LOG_DIR/backend.log"
 ENV_FILE="$BACKEND_DIR/.env.local"
+JAVA17_HOME="${JAVA17_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || true)}"
 
 mkdir -p "$LOG_DIR"
 
@@ -19,6 +20,11 @@ if [ -f "$ENV_FILE" ]; then
   set -a
   . "$ENV_FILE"
   set +a
+fi
+
+if [ -n "$JAVA17_HOME" ]; then
+  export JAVA_HOME="$JAVA17_HOME"
+  export PATH="$JAVA_HOME/bin:$PATH"
 fi
 
 cd "$BACKEND_DIR"

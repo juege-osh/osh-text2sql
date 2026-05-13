@@ -5,13 +5,13 @@
     <header class="hero">
       <div class="hero-copy">
         <span class="hero-badge">OSH RAG · Text2SQL Studio</span>
-        <h1>一句自然语言，直接查询 MySQL、Redis、Elasticsearch</h1>
+        <h1>一句自然语言，直接查询 MySQL、Redis、Elasticsearch、Kafka</h1>
         <p>
           直接复用服务端默认连接，自动读取结构，生成只读查询，并把结果翻译成清晰中文结论。
         </p>
       </div>
       <div class="hero-metrics">
-        <MetricCard label="默认数据源" value="3" sub="MySQL / Redis / ES" />
+        <MetricCard label="默认数据源" value="4" sub="MySQL / Redis / ES / Kafka" />
         <MetricCard label="执行模式" value="2" sub="自动生成 / 手动执行" />
         <MetricCard label="结果表达" value="AI" sub="查询 + 中文总结" />
       </div>
@@ -52,7 +52,7 @@
             :key="item.type"
             class="datasource-chip"
             :class="{ active: form.type === item.type }"
-            @click="form.type = item.type"
+            @click="switchDatasource(item.type)"
           >
             <div class="chip-head">
               <strong>{{ item.title }}</strong>
@@ -66,7 +66,11 @@
         <div class="grid-two">
           <el-form label-position="top">
             <el-form-item label="数据源类型">
-              <el-segmented v-model="form.type" :options="typeOptions" />
+              <el-segmented
+                v-model="form.type"
+                :options="typeOptions"
+                @change="handleDatasourceSegmentChange"
+              />
             </el-form-item>
             <el-form-item label="执行模式">
               <el-radio-group v-model="form.mode">
@@ -91,17 +95,46 @@
         </div>
 
         <div class="connection-grid">
-          <template v-if="form.type !== 'ELASTICSEARCH'">
+          <template v-if="form.type === 'MYSQL' || form.type === 'REDIS'">
             <el-input v-model="connection.host" placeholder="主机，留空走服务端默认" />
             <el-input-number v-model="connection.port" :min="1" :max="65535" controls-position="right" />
-            <el-input v-model="connection.username" placeholder="用户名，留空走服务端默认" />
+            <el-input
+              v-model="connection.username"
+              :placeholder="form.type === 'MYSQL' ? '用户名，留空走服务端默认' : 'Redis 通常无需用户名'"
+            />
             <el-input v-model="connection.password" show-password placeholder="密码，留空走服务端默认" />
-            <el-input v-model="connection.database" placeholder="数据库 / DB 编号，留空走服务端默认" />
+            <el-input
+              v-model="connection.database"
+              :placeholder="form.type === 'MYSQL' ? '数据库名，留空走服务端默认' : 'Redis DB 编号，留空走服务端默认'"
+            />
           </template>
-          <template v-else>
+
+          <template v-else-if="form.type === 'ELASTICSEARCH'">
             <el-input v-model="connection.baseUrl" placeholder="ES 地址，留空走服务端默认" />
             <el-input v-model="connection.username" placeholder="用户名，留空走服务端默认" />
             <el-input v-model="connection.password" show-password placeholder="密码，留空走服务端默认" />
+          </template>
+
+          <template v-else>
+            <el-input v-model="connection.bootstrapServers" placeholder="bootstrap servers，留空走服务端默认" />
+            <el-select v-model="connection.securityProtocol" placeholder="安全协议，留空走服务端默认">
+              <el-option
+                v-for="item in kafkaSecurityProtocols"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+            <el-select v-model="connection.saslMechanism" placeholder="SASL 机制，按需填写">
+              <el-option
+                v-for="item in kafkaMechanisms"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+            <el-input v-model="connection.username" placeholder="用户名，SASL 场景按需填写" />
+            <el-input v-model="connection.password" show-password placeholder="密码，SASL 场景按需填写" />
           </template>
         </div>
 
@@ -121,7 +154,7 @@
               v-model="form.question"
               type="textarea"
               :rows="4"
-              placeholder="例如：查询 assistant_feedback 表最近创建的 5 条反馈工单"
+              :placeholder="questionPlaceholder"
             />
           </el-form-item>
           <el-form-item v-if="form.mode === 'RAW'" :label="rawLabel">
@@ -281,7 +314,7 @@
             </div>
           </div>
 
-          <div v-else class="schema-grid es-grid">
+          <div v-else-if="activeSchema.type === 'ELASTICSEARCH'" class="schema-grid es-grid">
             <div
               v-for="item in esIndices"
               :key="item.name"
@@ -306,6 +339,33 @@
               </div>
             </div>
           </div>
+
+          <div v-else class="schema-grid kafka-grid">
+            <div
+              v-for="item in kafkaTopics"
+              :key="item.name"
+              class="schema-card"
+            >
+              <div class="schema-card-head">
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.partitions }} partitions</span>
+              </div>
+              <div class="schema-meta-row">内部主题：{{ item.internal ? '是' : '否' }}</div>
+              <div class="schema-meta-row">副本数：{{ item.replicationFactor }}</div>
+              <div class="field-cloud">
+                <span
+                  v-for="leader in item.partitionLeaders"
+                  :key="`${item.name}-${leader.partition}`"
+                  class="field-chip"
+                >
+                  P{{ leader.partition }} · {{ leader.leader }}
+                </span>
+              </div>
+            </div>
+            <div v-if="!kafkaTopics.length" class="schema-card schema-empty-card">
+              当前 Kafka 预览没有取到 topic，可先测试连接或查看 topic 列表。
+            </div>
+          </div>
         </div>
 
         <div v-if="result" class="code-card raw-response-card">
@@ -318,7 +378,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import MetricCard from '@/components/MetricCard.vue'
@@ -356,16 +416,33 @@ interface EsIndexView {
   fields: string[]
 }
 
+interface KafkaPartitionLeaderView {
+  partition: number
+  leader: string
+}
+
+interface KafkaTopicView {
+  name: string
+  partitions: number
+  internal: boolean
+  replicationFactor: number
+  partitionLeaders: KafkaPartitionLeaderView[]
+}
+
 const typeOptions = [
   { label: 'MySQL', value: 'MYSQL' },
   { label: 'Redis', value: 'REDIS' },
-  { label: 'Elasticsearch', value: 'ELASTICSEARCH' }
-]
+  { label: 'Elasticsearch', value: 'ELASTICSEARCH' },
+  { label: 'Kafka', value: 'KAFKA' }
+] as const
+
+const kafkaSecurityProtocols = ['PLAINTEXT', 'SASL_PLAINTEXT', 'SSL', 'SASL_SSL']
+const kafkaMechanisms = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512']
 
 const examples: Record<DatasourceType, string[]> = {
   MYSQL: [
     '查询 assistant_feedback 表最近创建的 5 条反馈工单',
-    '统计 osh_bbs_post 表总共有多少条帖子',
+    '统计总共有多少个用户',
     '列出 osh_book 表价格最高的 5 本电子书'
   ],
   REDIS: [
@@ -377,13 +454,12 @@ const examples: Record<DatasourceType, string[]> = {
     '查询 osh_course_index 中销量最高的 5 个课程',
     '搜索标题包含 测试课程 的课程文档',
     '统计 osh_book_search_read 中最热门的电子书'
+  ],
+  KAFKA: [
+    '列出当前 Kafka 集群的 topic 列表',
+    '查看 user-action topic 最近 10 条消息',
+    '查看 osh.tool.index topic 的分区详情'
   ]
-}
-
-const defaults: Record<DatasourceType, ConnectionProfile> = {
-  MYSQL: { type: 'MYSQL' },
-  REDIS: { type: 'REDIS' },
-  ELASTICSEARCH: { type: 'ELASTICSEARCH' }
 }
 
 const apiDisplayTarget = import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`
@@ -400,7 +476,19 @@ const form = reactive<{
   rawQuery: ''
 })
 
-const connection = reactive<ConnectionProfile>({ ...defaults.MYSQL })
+const connection = reactive<ConnectionProfile>({
+  type: 'MYSQL',
+  host: '',
+  port: undefined,
+  database: '',
+  username: '',
+  password: '',
+  baseUrl: '',
+  bootstrapServers: '',
+  securityProtocol: '',
+  saslMechanism: ''
+})
+
 const loading = ref(false)
 const testing = ref(false)
 const schemaLoading = ref(false)
@@ -414,32 +502,33 @@ const history = ref<Array<{ id: string; type: DatasourceType; question: string; 
 
 let healthTimer: number | undefined
 
-watch(
-  () => form.type,
-  (type) => {
-    resetConnection(type)
-    form.question = examples[type][0]
-    form.rawQuery = ''
-    testMessage.value = ''
-    schemaPreview.value = null
-  }
-)
-
 const currentExamples = computed(() => examples[form.type])
 const currentDatasource = computed(() => snapshot.value?.datasources.find((item) => item.type === form.type) ?? null)
+const questionPlaceholder = computed(() => examples[form.type][0])
 const rawLabel = computed(() => {
   if (form.type === 'MYSQL') return '手动 SQL'
   if (form.type === 'REDIS') return '手动 Redis 命令'
-  return '手动 Elasticsearch DSL'
+  if (form.type === 'ELASTICSEARCH') return '手动 Elasticsearch DSL'
+  return '手动 Kafka Query DSL'
 })
 const rawPlaceholder = computed(() => {
-  if (form.type === 'MYSQL') return 'SELECT id, title, create_time FROM assistant_feedback ORDER BY create_time DESC LIMIT 5'
-  if (form.type === 'REDIS') return 'SCAN 0'
-  return `{\n  "_index": "osh_course_index",\n  "size": 5,\n  "query": { "match_all": {} }\n}`
+  if (form.type === 'MYSQL') {
+    return 'SELECT id, title, create_time FROM assistant_feedback ORDER BY create_time DESC LIMIT 5'
+  }
+  if (form.type === 'REDIS') {
+    return 'SCAN 0'
+  }
+  if (form.type === 'ELASTICSEARCH') {
+    return `{\n  "_index": "osh_course_index",\n  "size": 5,\n  "query": { "match_all": {} }\n}`
+  }
+  return `{\n  "operation": "READ_MESSAGES",\n  "topic": "user-action",\n  "limit": 10,\n  "from": "LATEST"\n}`
 })
 const connectionSummary = computed(() => {
   if (form.type === 'ELASTICSEARCH') {
     return connection.baseUrl || currentDatasource.value?.subtitle || '留空时使用服务端默认 ES 连接'
+  }
+  if (form.type === 'KAFKA') {
+    return connection.bootstrapServers || currentDatasource.value?.subtitle || '留空时使用服务端默认 Kafka 连接'
   }
   if (connection.host || connection.port || connection.database) {
     return `${connection.host || '未设置主机'}:${connection.port || '-'} / ${connection.database || '-'}`
@@ -447,33 +536,59 @@ const connectionSummary = computed(() => {
   return currentDatasource.value?.subtitle || '留空时使用服务端默认连接'
 })
 const activeSchema = computed<SchemaResponse | null>(() => schemaPreview.value ?? result.value?.schema ?? null)
+
 const mysqlTables = computed<MysqlTableView[]>(() => {
   if (activeSchema.value?.type !== 'MYSQL') return []
-  return Object.entries(activeSchema.value.schema || {}).map(([name, raw]) => ({
+  return Object.entries(asObject(activeSchema.value.schema)).map(([name, raw]) => ({
     name,
-    columns: Array.isArray(raw)
-      ? raw.map((item) => normalizeMysqlColumn(item))
-      : []
+    columns: Array.isArray(raw) ? raw.map((item) => normalizeMysqlColumn(item)) : []
   }))
 })
+
 const redisKeys = computed<RedisKeyView[]>(() => {
   if (activeSchema.value?.type !== 'REDIS') return []
-  return Object.entries(activeSchema.value.schema || {}).map(([key, raw]) => ({
-    key,
-    type: toRecord(raw).type || 'unknown',
-    ttl: Number(toRecord(raw).ttl ?? -1)
-  }))
+  return Object.entries(asObject(activeSchema.value.schema)).map(([key, raw]) => {
+    const record = asObject(raw)
+    return {
+      key,
+      type: String(record.type ?? 'unknown'),
+      ttl: Number(record.ttl ?? -1)
+    }
+  })
 })
+
 const esIndices = computed<EsIndexView[]>(() => {
   if (activeSchema.value?.type !== 'ELASTICSEARCH') return []
-  return Object.entries(activeSchema.value.schema || {}).map(([name, raw]) => {
-    const record = toRecord(raw)
-    const fields = Array.isArray(record.fields) ? record.fields.map(String) : []
+  return Object.entries(asObject(activeSchema.value.schema)).map(([name, raw]) => {
+    const record = asObject(raw)
     return {
       name,
-      status: record.status || 'unknown',
+      status: String(record.status ?? 'unknown'),
       docsCount: String(record.docsCount ?? 0),
-      fields
+      fields: toStringArray(record.fields)
+    }
+  })
+})
+
+const kafkaTopics = computed<KafkaTopicView[]>(() => {
+  if (activeSchema.value?.type !== 'KAFKA') return []
+  return Object.entries(asObject(activeSchema.value.schema)).map(([name, raw]) => {
+    const record = asObject(raw)
+    const leaders = Array.isArray(record.partitionLeaders)
+      ? record.partitionLeaders.map((item) => {
+          const leaderRecord = asObject(item)
+          return {
+            partition: Number(leaderRecord.partition ?? 0),
+            leader: String(leaderRecord.leader ?? 'unknown')
+          }
+        })
+      : []
+    return {
+      name,
+      partitions: Number(record.partitions ?? 0),
+      internal: Boolean(record.internal),
+      replicationFactor: Number(record.replicationFactor ?? 0),
+      partitionLeaders: leaders
     }
   })
 })
@@ -491,6 +606,20 @@ onUnmounted(() => {
     window.clearInterval(healthTimer)
   }
 })
+
+function handleDatasourceSegmentChange(value: string | number | boolean) {
+  switchDatasource(value as DatasourceType)
+}
+
+function switchDatasource(type: DatasourceType, question?: string) {
+  form.type = type
+  resetConnection(type)
+  form.question = question ?? examples[type][0]
+  form.rawQuery = ''
+  result.value = null
+  schemaPreview.value = null
+  testMessage.value = ''
+}
 
 async function handleRefreshHealth() {
   await checkBackendHealth(true)
@@ -580,26 +709,23 @@ async function loadSnapshot() {
 }
 
 function handleReset() {
-  resetConnection(form.type)
-  form.question = examples[form.type][0]
-  form.rawQuery = ''
-  result.value = null
-  schemaPreview.value = null
-  testMessage.value = ''
+  switchDatasource(form.type)
 }
 
 function applySuggestion(type: DatasourceType, prompt: string) {
-  form.type = type
-  form.question = prompt
+  switchDatasource(type, prompt)
 }
 
 function restoreHistory(id: string) {
   const target = history.value.find((item) => item.id === id)
   if (!target) return
   form.type = target.type
-  form.question = target.question
   result.value = target.payload
   schemaPreview.value = target.payload.schema
+  form.question = target.question
+  form.rawQuery = ''
+  testMessage.value = ''
+  resetConnection(target.type)
 }
 
 async function copyText(text: string) {
@@ -627,15 +753,17 @@ function downloadResult(format: 'json' | 'csv') {
 
 function toCsv(rows: Record<string, unknown>[], columns: string[]) {
   const header = columns.join(',')
-  const body = rows.map((row) =>
-    columns.map((column) => csvCell(row[column])).join(',')
-  )
+  const body = rows.map((row) => columns.map((column) => csvCell(row[column])).join(','))
   return [header, ...body].join('\n')
 }
 
 function csvCell(value: unknown) {
-  const text = value == null ? '' : String(value).replace(/"/g, '""')
-  return `"${text}"`
+  const text = value == null
+    ? ''
+    : typeof value === 'object'
+      ? JSON.stringify(value)
+      : String(value)
+  return `"${text.replace(/"/g, '""')}"`
 }
 
 function prettyJson(value: unknown) {
@@ -643,21 +771,23 @@ function prettyJson(value: unknown) {
 }
 
 function normalizeMysqlColumn(value: unknown): MysqlColumnView {
-  const record = toRecord(value)
+  const record = asObject(value)
   return {
-    columnName: record.columnName || '-',
-    dataType: record.dataType || '-',
-    columnComment: record.columnComment || ''
+    columnName: String(record.columnName ?? '-'),
+    dataType: String(record.dataType ?? '-'),
+    columnComment: String(record.columnComment ?? '')
   }
 }
 
-function toRecord(value: unknown): Record<string, string> {
+function asObject(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, String(entry ?? '')])
-    )
+    return value as Record<string, unknown>
   }
   return {}
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)) : []
 }
 
 function formatTtl(ttl: number) {
@@ -674,18 +804,32 @@ function resetConnection(type: DatasourceType) {
     database: '',
     username: '',
     password: '',
-    baseUrl: ''
+    baseUrl: '',
+    bootstrapServers: '',
+    securityProtocol: '',
+    saslMechanism: ''
   })
 }
 
 function buildConnectionPayload(): ConnectionProfile {
   const payload: ConnectionProfile = { type: form.type }
+
   if (form.type === 'ELASTICSEARCH') {
     if (connection.baseUrl?.trim()) payload.baseUrl = connection.baseUrl.trim()
     if (connection.username?.trim()) payload.username = connection.username.trim()
     if (connection.password?.trim()) payload.password = connection.password
     return payload
   }
+
+  if (form.type === 'KAFKA') {
+    if (connection.bootstrapServers?.trim()) payload.bootstrapServers = connection.bootstrapServers.trim()
+    if (connection.securityProtocol?.trim()) payload.securityProtocol = connection.securityProtocol.trim()
+    if (connection.saslMechanism?.trim()) payload.saslMechanism = connection.saslMechanism.trim()
+    if (connection.username?.trim()) payload.username = connection.username.trim()
+    if (connection.password?.trim()) payload.password = connection.password
+    return payload
+  }
+
   if (connection.host?.trim()) payload.host = connection.host.trim()
   if (typeof connection.port === 'number') payload.port = connection.port
   if (connection.username?.trim()) payload.username = connection.username.trim()
@@ -694,3 +838,335 @@ function buildConnectionPayload(): ConnectionProfile {
   return payload
 }
 </script>
+
+<style scoped>
+.service-pill strong,
+.service-pill span,
+.chip-head span,
+.chip-sub,
+.chip-meta,
+.history-item span,
+.panel-header p,
+.muted,
+.tips-card p,
+.empty-state p,
+.schema-header p,
+.schema-card-head span,
+.schema-meta-row,
+.schema-more,
+.safety-note,
+.test-message {
+  line-height: 1.6;
+}
+
+.datasource-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.connection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 8px 0 18px;
+}
+
+.datasource-chip,
+.history-item {
+  border: 1px solid var(--line);
+  background: rgba(255, 252, 247, 0.95);
+  border-radius: 18px;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.datasource-chip:hover,
+.history-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(184, 92, 56, 0.35);
+}
+
+.datasource-chip.active {
+  background: linear-gradient(135deg, rgba(184, 92, 56, 0.12), rgba(31, 107, 103, 0.08));
+  border-color: rgba(184, 92, 56, 0.3);
+}
+
+.chip-head,
+.history-head,
+.summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chip-head span,
+.chip-sub,
+.chip-meta,
+.history-item span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chip-sub,
+.chip-meta {
+  margin-top: 6px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.ghost-button {
+  --el-button-bg-color: #fff8f1;
+  --el-button-border-color: rgba(184, 92, 56, 0.18);
+  --el-button-text-color: var(--accent-deep);
+}
+
+.test-message {
+  color: var(--teal);
+  font-size: 13px;
+}
+
+.summary-card {
+  border-radius: 24px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(184, 92, 56, 0.12), rgba(31, 107, 103, 0.08));
+}
+
+.summary-title {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+
+.summary-body {
+  margin-top: 10px;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.summary-actions {
+  margin-top: 14px;
+  justify-content: flex-start;
+}
+
+.code-card,
+.table-card,
+.empty-state,
+.history-card {
+  border-radius: 24px;
+  padding: 18px;
+}
+
+.table-card {
+  margin: 16px 0;
+}
+
+.code-card pre {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #1f1815;
+  color: #f8ecde;
+  min-height: 180px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.safety-note {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.empty-state {
+  min-height: 540px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  background:
+    linear-gradient(145deg, rgba(255, 244, 231, 0.96), rgba(243, 237, 227, 0.88)),
+    repeating-linear-gradient(135deg, transparent, transparent 12px, rgba(184, 92, 56, 0.03) 12px, rgba(184, 92, 56, 0.03) 24px);
+}
+
+.empty-kicker {
+  color: var(--teal);
+  letter-spacing: 0.2em;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.history-card {
+  margin-top: 10px;
+  background: rgba(255, 251, 246, 0.95);
+  border: 1px solid var(--line);
+}
+
+.history-item {
+  width: 100%;
+  text-align: left;
+  margin-top: 10px;
+  display: block;
+}
+
+.history-item strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.empty-suggestions {
+  margin-top: 18px;
+  width: min(680px, 100%);
+}
+
+.schema-section {
+  margin-top: 16px;
+}
+
+.schema-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.schema-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.mysql-grid,
+.redis-grid,
+.es-grid,
+.kafka-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.schema-card {
+  background: rgba(255, 251, 246, 0.96);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 16px;
+}
+
+.schema-empty-card {
+  color: var(--muted);
+}
+
+.schema-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.schema-card-head span,
+.schema-meta-row,
+.schema-more {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.schema-column-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.schema-column-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(92, 59, 32, 0.1);
+}
+
+.schema-column-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.schema-column-item strong {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.schema-column-item em {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.schema-more {
+  margin-top: 10px;
+}
+
+.field-cloud {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.field-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff4e9;
+  color: var(--accent-deep);
+  font-size: 12px;
+}
+
+.raw-response-card {
+  margin-top: 16px;
+}
+
+@media (max-width: 1180px) {
+  .datasource-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .connection-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mysql-grid,
+  .redis-grid,
+  .es-grid,
+  .kafka-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .datasource-strip,
+  .connection-grid,
+  .mysql-grid,
+  .redis-grid,
+  .es-grid,
+  .kafka-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .schema-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+</style>

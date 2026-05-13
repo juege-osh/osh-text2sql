@@ -7,12 +7,14 @@
 - MySQL 自然语言转只读 SQL
 - Redis 自然语言转只读命令
 - Elasticsearch 自然语言转 `_search` DSL
+- Kafka 自然语言转只读消息查询 DSL
 - AI 中文结论总结
 - 查询历史回放
 - JSON / CSV 导出
 - 数据源结构摘要可视化
 - 服务端默认连接回落
 - 独立 jar 打包与远端一键部署
+- 无 DashScope API Key 时自动回退为规则生成模式，服务仍可直接启动
 
 ## 项目结构
 
@@ -62,6 +64,7 @@ cd /Users/rengang/chuangye/osh-projects/osh-rag/osh-text2sql
 - 后端：`http://127.0.0.1:9100/api/health`
 
 前端默认不再保存任何数据库密码。连接字段留空时，后端自动使用服务端环境变量里的默认连接。
+如果未配置 DashScope API Key，系统会自动关闭 AI 生成与总结，改用规则兜底查询逻辑，不影响基础可用性。
 
 ## 测试与打包
 
@@ -150,10 +153,14 @@ curl http://43.242.200.25:19100/api/health
 - `OSH_TEXT2SQL_REDIS_PORT`
 - `OSH_TEXT2SQL_REDIS_DATABASE`
 - `OSH_TEXT2SQL_ES_BASE_URL`
+- `OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS`
+- `OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL`
+- `OSH_TEXT2SQL_KAFKA_SASL_MECHANISM`
 
 ## 已处理的关键问题
 
 - 前端 API 不再写死 `127.0.0.1:9100`
 - 查询“总共有多少个用户”时，会优先命中真正的用户主表
+- Kafka 现在支持 topic 列表、topic 分区详情、最近消息读取和关键字过滤
 - 仓库中不再保留数据库密码和 DashScope API Key
 - 线上部署不依赖已有容器，不触碰现有 `:80` 和 `:8081` 服务

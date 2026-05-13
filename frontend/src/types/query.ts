@@ -1,4 +1,4 @@
-export type DatasourceType = 'MYSQL' | 'REDIS' | 'ELASTICSEARCH'
+export type DatasourceType = 'MYSQL' | 'REDIS' | 'ELASTICSEARCH' | 'KAFKA'
 export type QueryMode = 'AUTO' | 'RAW'
 
 export interface ConnectionProfile {
@@ -9,6 +9,9 @@ export interface ConnectionProfile {
   username?: string
   password?: string
   baseUrl?: string
+  bootstrapServers?: string
+  securityProtocol?: string
+  saslMechanism?: string
 }
 
 export interface QueryRequest {
