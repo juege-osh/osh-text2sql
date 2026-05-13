@@ -1,0 +1,127 @@
+name: Deploy OSH Text2SQL
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'release/**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-osh-text2sql
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '17'
+  DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '43.242.200.25' }}
+  DEPLOY_USER: ${{ secrets.DEPLOY_USER || vars.DEPLOY_USER || 'root' }}
+  DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || vars.DEPLOY_PORT || '58753' }}
+  DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT || '/www/osh-text2sql' }}
+  APP_PORT: ${{ vars.OSH_TEXT2SQL_SERVER_PORT || '19100' }}
+
+jobs:
+  deploy:
+    name: Build and deploy integrated app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build backend jar
+        working-directory: backend
+        run: ./mvnw clean package -DskipTests
+
+      - name: Validate jar output
+        run: |
+          test -f backend/target/osh-text2sql-backend-1.0.0-SNAPSHOT.jar
+          unzip -t backend/target/osh-text2sql-backend-1.0.0-SNAPSHOT.jar >/tmp/osh-text2sql-jar-check.log
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$DEPLOY_PORT" -T 15 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          test -s ~/.ssh/known_hosts
+
+      - name: Ensure remote directories exist
+        run: |
+          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p '$DEPLOY_ROOT/app' '$DEPLOY_ROOT/bin' '$DEPLOY_ROOT/shared' '$DEPLOY_ROOT/logs' '$DEPLOY_ROOT/run'"
+
+      - name: Upload jar and server scripts
+        run: |
+          rsync -az --progress \
+            -e "ssh -o ConnectTimeout=30 -p $DEPLOY_PORT" \
+            backend/target/osh-text2sql-backend-1.0.0-SNAPSHOT.jar \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_ROOT/app/osh-text2sql-backend.jar.next"
+          rsync -az --delete \
+            -e "ssh -o ConnectTimeout=30 -p $DEPLOY_PORT" \
+            deploy/server/ \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_ROOT/bin/"
+
+      - name: Write remote environment file
+        run: |
+          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "cat > '$DEPLOY_ROOT/shared/app.env' <<'EOF'
+          OSH_TEXT2SQL_SERVER_PORT=${{ vars.OSH_TEXT2SQL_SERVER_PORT || '19100' }}
+          OSH_TEXT2SQL_DASHSCOPE_API_KEY=${{ secrets.OSH_TEXT2SQL_DASHSCOPE_API_KEY }}
+          OSH_TEXT2SQL_DASHSCOPE_MODEL=${{ vars.OSH_TEXT2SQL_DASHSCOPE_MODEL || 'qwen-plus' }}
+          OSH_TEXT2SQL_MYSQL_HOST=${{ vars.OSH_TEXT2SQL_MYSQL_HOST || '43.242.200.25' }}
+          OSH_TEXT2SQL_MYSQL_PORT=${{ vars.OSH_TEXT2SQL_MYSQL_PORT || '3306' }}
+          OSH_TEXT2SQL_MYSQL_DATABASE=${{ vars.OSH_TEXT2SQL_MYSQL_DATABASE || 'backstage' }}
+          OSH_TEXT2SQL_MYSQL_USERNAME=${{ secrets.OSH_TEXT2SQL_MYSQL_USERNAME }}
+          OSH_TEXT2SQL_MYSQL_PASSWORD=${{ secrets.OSH_TEXT2SQL_MYSQL_PASSWORD }}
+          OSH_TEXT2SQL_REDIS_HOST=${{ vars.OSH_TEXT2SQL_REDIS_HOST || '127.0.0.1' }}
+          OSH_TEXT2SQL_REDIS_PORT=${{ vars.OSH_TEXT2SQL_REDIS_PORT || '6379' }}
+          OSH_TEXT2SQL_REDIS_DATABASE=${{ vars.OSH_TEXT2SQL_REDIS_DATABASE || '0' }}
+          OSH_TEXT2SQL_REDIS_PASSWORD=${{ secrets.OSH_TEXT2SQL_REDIS_PASSWORD }}
+          OSH_TEXT2SQL_ES_BASE_URL=${{ vars.OSH_TEXT2SQL_ES_BASE_URL || 'http://43.242.200.25:9200' }}
+          OSH_TEXT2SQL_ES_USERNAME=${{ secrets.OSH_TEXT2SQL_ES_USERNAME }}
+          OSH_TEXT2SQL_ES_PASSWORD=${{ secrets.OSH_TEXT2SQL_ES_PASSWORD }}
+          EOF
+          chmod 600 '$DEPLOY_ROOT/shared/app.env'"
+
+      - name: Restart remote service
+        run: |
+          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "\
+            chmod 755 '$DEPLOY_ROOT/bin/'*.sh && \
+            '$DEPLOY_ROOT/bin/install.sh' && \
+            mv '$DEPLOY_ROOT/app/osh-text2sql-backend.jar.next' '$DEPLOY_ROOT/app/osh-text2sql-backend.jar' && \
+            '$DEPLOY_ROOT/bin/restart.sh'"
+
+      - name: Verify remote health
+        run: |
+          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "\
+            for i in \$(seq 1 30); do \
+              if curl -fsS 'http://127.0.0.1:${APP_PORT}/api/health' >/dev/null; then \
+                exit 0; \
+              fi; \
+              sleep 2; \
+            done; \
+            exit 1"
+          curl -fsS "http://$DEPLOY_HOST:${APP_PORT}/api/health"

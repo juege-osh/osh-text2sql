@@ -1,0 +1,50 @@
+server:
+  port: ${OSH_TEXT2SQL_SERVER_PORT:9100}
+
+spring:
+  application:
+    name: osh-text2sql-backend
+  ai:
+    dashscope:
+      api-key: ${OSH_TEXT2SQL_DASHSCOPE_API_KEY:}
+      chat:
+        options:
+          model: ${OSH_TEXT2SQL_DASHSCOPE_MODEL:qwen-plus}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+osh:
+  text2sql:
+    query-limit: 100
+    default-timeout-seconds: 20
+    ai:
+      explain-result: true
+    datasources:
+      mysql:
+        enabled: true
+        host: ${OSH_TEXT2SQL_MYSQL_HOST:127.0.0.1}
+        port: ${OSH_TEXT2SQL_MYSQL_PORT:3306}
+        database: ${OSH_TEXT2SQL_MYSQL_DATABASE:backstage}
+        username: ${OSH_TEXT2SQL_MYSQL_USERNAME:}
+        password: ${OSH_TEXT2SQL_MYSQL_PASSWORD:}
+      redis:
+        enabled: true
+        host: ${OSH_TEXT2SQL_REDIS_HOST:127.0.0.1}
+        port: ${OSH_TEXT2SQL_REDIS_PORT:6379}
+        password: ${OSH_TEXT2SQL_REDIS_PASSWORD:}
+        database: ${OSH_TEXT2SQL_REDIS_DATABASE:0}
+      elasticsearch:
+        enabled: true
+        base-url: ${OSH_TEXT2SQL_ES_BASE_URL:http://127.0.0.1:9200}
+        username: ${OSH_TEXT2SQL_ES_USERNAME:}
+        password: ${OSH_TEXT2SQL_ES_PASSWORD:}
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: info
+    com.osh.text2sql: info
