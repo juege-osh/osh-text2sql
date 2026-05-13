@@ -12,8 +12,12 @@ import com.osh.text2sql.dto.QueryExecutionResult;
 import com.osh.text2sql.exception.BadRequestException;
 import com.osh.text2sql.util.JsonUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,6 +33,8 @@ import java.util.regex.Pattern;
 @Service
 public class PromptService {
 
+    private static final Logger log = LoggerFactory.getLogger(PromptService.class);
+
     private static final Pattern NUMBER_PATTERN = Pattern.compile("(\\d+)");
 
     private static final PromptTemplate GENERATE_QUERY_TEMPLATE = new PromptTemplate("""
@@ -43,11 +49,11 @@ public class PromptService {
         4. Redis 只能输出单条只读命令，列 key 时优先使用 SCAN，禁止使用 KEYS。
         5. Elasticsearch 只能输出查询 body JSON，不要包含 markdown，不要包含 HTTP 方法和 URL，必须包含 _index 字段。
         6. Kafka 只能输出只读查询 DSL JSON，operation 只能是 LIST_TOPICS、DESCRIBE_TOPIC、READ_MESSAGES。
-        6.1 Kafka 查询 DSL 示例：
-        {"operation":"LIST_TOPICS","limit":20}
-        {"operation":"DESCRIBE_TOPIC","topic":"user-action"}
-        {"operation":"READ_MESSAGES","topic":"user-action","limit":10,"from":"LATEST"}
-        {"operation":"READ_MESSAGES","topic":"user-action","partition":0,"limit":10,"from":"OFFSET","offset":120}
+        6.1 Kafka 查询 DSL 字段包括 operation、limit、topic、partition、from、offset、keyContains、valueContains。
+        6.1.1 查看 topic 列表时，operation 使用 LIST_TOPICS，可附带 limit。
+        6.1.2 查看 topic 详情时，operation 使用 DESCRIBE_TOPIC，并提供 topic。
+        6.1.3 查看最近消息时，operation 使用 READ_MESSAGES，并提供 topic、limit、from=LATEST。
+        6.1.4 按偏移量读取消息时，operation 使用 READ_MESSAGES，并提供 topic、partition、limit、from=OFFSET、offset。
         6.2 如果用户要“看最近消息/最新消息”，优先用 READ_MESSAGES + from=LATEST。
         6.3 如果用户要“看 topic 列表/有哪些主题”，用 LIST_TOPICS。
         6.4 如果用户要“看 topic 分区/详情”，用 DESCRIBE_TOPIC。
@@ -71,40 +77,40 @@ public class PromptService {
 
     private final ChatClient chatClient;
 
+    @Autowired
     public PromptService(ObjectProvider<ChatClient.Builder> builderProvider) {
         ChatClient.Builder builder = builderProvider.getIfAvailable();
         this.chatClient = builder == null ? null : builder.build();
+    }
+
+    PromptService(ChatClient chatClient) {
+        this.chatClient = chatClient;
     }
 
     public GeneratedQuery generateQuery(DatasourceType type, String question, DatasourceSchemaResponse schema) {
         if (chatClient == null) {
             return fallbackGenerateQuery(type, question, schema);
         }
-        String content = chatClient.prompt()
-            .system("你必须只输出合法 JSON 对象，不要输出 markdown，不要输出解释性前后缀。")
-            .user(GENERATE_QUERY_TEMPLATE.render(Map.of(
-                "type", type.name(),
-                "question", question,
-                "schema", JsonUtils.toJson(schema.getSchema())
-            )))
-            .call()
-            .content();
         try {
+            String content = chatClient.prompt()
+                .system("你必须只输出合法 JSON 对象，不要输出 markdown，不要输出解释性前后缀。")
+                .messages(new UserMessage(GENERATE_QUERY_TEMPLATE.render(Map.of(
+                    "type", type.name(),
+                    "question", question,
+                    "schema", JsonUtils.toJson(schema.getSchema())
+                ))))
+                .call()
+                .content();
             PromptOutput output = parsePromptOutput(content);
-            String query = stringifyQuery(output.getQuery());
-            if (query != null) {
-                query = query.trim();
-                if (type == DatasourceType.MYSQL && query.endsWith(";")) {
-                    query = query.substring(0, query.length() - 1);
-                }
-            }
-            return GeneratedQuery.builder()
+            GeneratedQuery generatedQuery = GeneratedQuery.builder()
                 .type(type)
-                .query(query)
+                .query(normalizeGeneratedQuery(type, question, schema, output.getQuery()))
                 .reasoning(output.getReasoning())
                 .safetyNotes(output.getSafetyNotes())
                 .build();
+            return normalizeMysqlUserCountQuery(question, schema, generatedQuery);
         } catch (Exception exception) {
+            log.warn("AI 生成查询失败，改用规则兜底: {}", exception.getMessage());
             return fallbackGenerateQuery(type, question, schema);
         }
     }
@@ -115,7 +121,7 @@ public class PromptService {
         }
         return chatClient.prompt()
             .system("只用中文给出简洁可信的结论，不要捏造不存在的数据。")
-            .user(EXPLAIN_RESULT_TEMPLATE.render(Map.of(
+            .messages(new UserMessage(EXPLAIN_RESULT_TEMPLATE.render(Map.of(
                 "question", question,
                 "type", result.getType().name(),
                 "query", result.getExecutedQuery(),
@@ -125,7 +131,7 @@ public class PromptService {
                     "rows", result.getRows(),
                     "total", result.getTotal()
                 ))
-            )))
+            ))))
             .call()
             .content();
     }
@@ -204,6 +210,34 @@ public class PromptService {
             .query(sql.toString())
             .reasoning("当前未启用 AI，已按问题关键词和表结构生成兜底 SQL。")
             .safetyNotes("仅生成单条只读 SELECT 查询。")
+            .build();
+    }
+
+    private GeneratedQuery normalizeMysqlUserCountQuery(String question,
+                                                        DatasourceSchemaResponse schemaResponse,
+                                                        GeneratedQuery generatedQuery) {
+        if (generatedQuery.getType() != DatasourceType.MYSQL) {
+            return generatedQuery;
+        }
+        Map<String, Object> schema = asObject(schemaResponse.getSchema());
+        if (!shouldForcePrimaryUserCountQuery(question, schema)) {
+            return generatedQuery;
+        }
+        String table = resolveMysqlTable(question, schema);
+        if (table == null) {
+            return generatedQuery;
+        }
+        List<String> columns = extractMysqlColumns(schema.get(table));
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS total_users FROM ").append(table);
+        String deleteFlag = findColumn(columns, List.of("delete_flag", "deleted", "is_deleted", "del_flag"));
+        if (deleteFlag != null) {
+            sql.append(" WHERE ").append(deleteFlag).append(" = 0");
+        }
+        return GeneratedQuery.builder()
+            .type(DatasourceType.MYSQL)
+            .query(sql.toString())
+            .reasoning(StrUtil.blankToDefault(generatedQuery.getReasoning(), "已自动纠正为用户主表统计 SQL。"))
+            .safetyNotes(StrUtil.blankToDefault(generatedQuery.getSafetyNotes(), "仅生成单条只读 SELECT 查询。"))
             .build();
     }
 
@@ -321,6 +355,18 @@ public class PromptService {
             || questionLower.contains("统计");
     }
 
+    private boolean shouldForcePrimaryUserCountQuery(String question, Map<String, Object> schema) {
+        String questionLower = question.toLowerCase(Locale.ROOT);
+        if (!isCountQuestion(questionLower)) {
+            return false;
+        }
+        if (!(questionLower.contains("user") || question.contains("用户"))) {
+            return false;
+        }
+        String explicitTable = resolveSchemaObjectName(question, schema.keySet().stream().toList());
+        return explicitTable == null || isUserLikeName(explicitTable);
+    }
+
     private String resolveMysqlTable(String question, Map<String, Object> schema) {
         List<String> tableNames = schema.keySet().stream().toList();
         String explicit = resolveSchemaObjectName(question, tableNames);
@@ -328,6 +374,12 @@ public class PromptService {
             return explicit;
         }
         String lower = question.toLowerCase(Locale.ROOT);
+        if (question.contains("系统用户") || question.contains("后台用户") || question.contains("管理员")) {
+            return tableNames.stream()
+                .filter(name -> "sys_user".equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+        }
         if (lower.contains("user") || question.contains("用户")) {
             return tableNames.stream()
                 .filter(this::isUserLikeName)
@@ -340,13 +392,19 @@ public class PromptService {
 
     private int userTablePriority(String tableName) {
         String lower = tableName.toLowerCase(Locale.ROOT);
-        if ("sys_user".equals(lower) || "osh_user".equals(lower) || "user".equals(lower) || "users".equals(lower)) {
+        if ("osh_user".equals(lower)) {
             return 0;
         }
-        if (lower.endsWith("_user")) {
+        if ("user".equals(lower) || "users".equals(lower)) {
             return 1;
         }
-        return 2;
+        if ("sys_user".equals(lower)) {
+            return 2;
+        }
+        if (lower.endsWith("_user")) {
+            return 3;
+        }
+        return 4;
     }
 
     private boolean isUserLikeName(String name) {
@@ -523,5 +581,20 @@ public class PromptService {
             return JsonUtils.toJson(new LinkedHashMap<>(map));
         }
         return JsonUtils.toJson(query);
+    }
+
+    private String normalizeGeneratedQuery(DatasourceType type,
+                                          String question,
+                                          DatasourceSchemaResponse schema,
+                                          Object rawQuery) {
+        String query = stringifyQuery(rawQuery);
+        if (query == null) {
+            return null;
+        }
+        query = query.trim();
+        if (type == DatasourceType.MYSQL && query.endsWith(";")) {
+            query = query.substring(0, query.length() - 1);
+        }
+        return query;
     }
 }
