@@ -2,6 +2,10 @@
 
 独立的 `Java 17 + Spring Boot 3 + Vue 3` 文本查数项目，目录位于 `osh-rag/osh-text2sql`。
 
+详细技术教程见：
+
+- [docs/tutorial-zh.md](/Users/rengang/chuangye/osh-projects/osh-rag/osh-text2sql/docs/tutorial-zh.md)
+
 当前能力：
 
 - MySQL 自然语言转只读 SQL
