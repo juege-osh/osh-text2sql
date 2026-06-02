@@ -23,6 +23,7 @@ public class ConnectionProfileResolver {
             case REDIS -> applyRedis(profile, incoming);
             case ELASTICSEARCH -> applyElasticsearch(profile, incoming);
             case KAFKA -> applyKafka(profile, incoming);
+            case HBASE -> applyHbase(profile, incoming);
             default -> throw new IllegalArgumentException("Unsupported type: " + type);
         }
         return profile;
@@ -59,6 +60,14 @@ public class ConnectionProfileResolver {
         target.setSaslMechanism(resolveText(incoming == null ? null : incoming.getSaslMechanism(), kafka.getSaslMechanism()));
         target.setUsername(resolveText(incoming == null ? null : incoming.getUsername(), kafka.getUsername()));
         target.setPassword(resolveText(incoming == null ? null : incoming.getPassword(), kafka.getPassword()));
+    }
+
+    private void applyHbase(ConnectionProfile target, ConnectionProfile incoming) {
+        Text2SqlProperties.HbaseProperties hbase = properties.getDatasources().getHbase();
+        target.setZookeeperQuorum(resolveText(incoming == null ? null : incoming.getZookeeperQuorum(), hbase.getZookeeperQuorum()));
+        target.setZookeeperClientPort(resolveInt(incoming == null ? null : incoming.getZookeeperClientPort(), hbase.getZookeeperClientPort()));
+        target.setZnodeParent(resolveText(incoming == null ? null : incoming.getZnodeParent(), hbase.getZnodeParent()));
+        target.setNamespace(resolveText(incoming == null ? null : incoming.getNamespace(), hbase.getNamespace()));
     }
 
     private String resolveText(String preferred, String fallback) {

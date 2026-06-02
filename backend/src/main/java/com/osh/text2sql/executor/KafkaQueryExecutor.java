@@ -13,11 +13,7 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
-import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.stereotype.Component;
@@ -25,6 +21,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +47,7 @@ public class KafkaQueryExecutor implements QueryExecutor {
             case "LIST_TOPICS" -> executeListTopics(profile, spec, start);
             case "DESCRIBE_TOPIC" -> executeDescribeTopic(profile, spec, start);
             case "READ_MESSAGES" -> executeReadMessages(profile, spec, start);
+            case "COUNT_UNCONSUMED_MESSAGES" -> executeCountUnconsumedMessages(profile, spec, start);
             default -> throw new BadRequestException("不支持的 Kafka 操作");
         };
     }
@@ -194,6 +192,103 @@ public class KafkaQueryExecutor implements QueryExecutor {
         }
     }
 
+    private QueryExecutionResult executeCountUnconsumedMessages(ConnectionProfile profile, KafkaQuerySpec spec, long start) {
+        Properties consumerProperties = buildConsumerProperties(profile);
+        try (AdminClient adminClient = AdminClient.create(kafkaIntrospector.buildAdminProperties(profile));
+             Consumer<String, String> consumer = new KafkaConsumer<>(consumerProperties)) {
+            List<TopicPartition> partitions = resolveTopicPartitions(consumer, spec);
+            if (partitions.isEmpty()) {
+                throw new BadRequestException("未找到可统计的 Kafka 分区");
+            }
+
+            Map<TopicPartition, Long> committedOffsets = adminClient.listConsumerGroupOffsets(spec.getConsumerGroup())
+                .partitionsToOffsetAndMetadata()
+                .get(8, TimeUnit.SECONDS)
+                .entrySet()
+                .stream()
+                .filter(entry -> partitions.contains(entry.getKey()))
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> offsetOf(entry.getValue())));
+            Map<TopicPartition, Long> endOffsets = adminClient.listOffsets(buildOffsetRequest(partitions, OffsetSpec.latest()))
+                .all()
+                .get(8, TimeUnit.SECONDS)
+                .entrySet()
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().offset()));
+
+            consumer.assign(partitions);
+            for (TopicPartition partition : partitions) {
+                long committed = committedOffsets.getOrDefault(partition, 0L);
+                long end = endOffsets.getOrDefault(partition, committed);
+                consumer.seek(partition, Math.max(0L, Math.min(committed, end)));
+            }
+
+            long matchedUnconsumedCount = 0L;
+            int emptyPolls = 0;
+            Set<String> seenMessages = new HashSet<>();
+            List<Map<String, Object>> rows = new ArrayList<>();
+
+            while (emptyPolls < 4) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(800));
+                if (records.isEmpty()) {
+                    emptyPolls++;
+                    continue;
+                }
+                emptyPolls = 0;
+                for (ConsumerRecord<String, String> record : records) {
+                    String recordId = record.topic() + "-" + record.partition() + "-" + record.offset();
+                    if (!seenMessages.add(recordId)) {
+                        continue;
+                    }
+                    if (!matches(record, spec)) {
+                        continue;
+                    }
+                    matchedUnconsumedCount++;
+                    if (rows.size() < Math.min(spec.getLimit(), 20)) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("topic", record.topic());
+                        row.put("consumerGroup", spec.getConsumerGroup());
+                        row.put("partition", record.partition());
+                        row.put("offset", record.offset());
+                        row.put("key", record.key());
+                        row.put("value", record.value());
+                        rows.add(row);
+                    }
+                }
+            }
+
+            List<Map<String, Object>> resultRows = rows.isEmpty()
+                ? List.of(Map.of("matchedUnconsumedCount", matchedUnconsumedCount))
+                : rows;
+            List<String> columns = rows.isEmpty()
+                ? List.of("matchedUnconsumedCount")
+                : List.of("topic", "consumerGroup", "partition", "offset", "key", "value");
+
+            return QueryExecutionResult.builder()
+                .type(DatasourceType.KAFKA)
+                .executedQuery(compactQuery(spec))
+                .queryLanguage("Kafka Query DSL")
+                .summary("topic %s 下 consumer group %s 匹配 key 过滤后的未消费消息数为 %d".formatted(
+                    spec.getTopic(), spec.getConsumerGroup(), matchedUnconsumedCount))
+                .columns(columns)
+                .rows(resultRows)
+                .total(matchedUnconsumedCount)
+                .elapsedMs(System.currentTimeMillis() - start)
+                .rawResponse(Map.of(
+                    "spec", JsonUtils.fromJson(JsonUtils.toJson(spec), new TypeReference<Map<String, Object>>() {
+                    }),
+                    "matchedUnconsumedCount", matchedUnconsumedCount,
+                    "committedOffsets", stringifyOffsets(committedOffsets),
+                    "endOffsets", stringifyOffsets(endOffsets),
+                    "sampleRows", rows
+                ))
+                .build();
+        } catch (BadRequestException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("Kafka 未消费消息统计失败: " + exception.getMessage(), exception);
+        }
+    }
+
     private Properties buildConsumerProperties(ConnectionProfile profile) {
         Properties properties = new Properties();
         properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, profile.getBootstrapServers());
@@ -274,10 +369,15 @@ public class KafkaQueryExecutor implements QueryExecutor {
         return result;
     }
 
+    private long offsetOf(OffsetAndMetadata offsetAndMetadata) {
+        return offsetAndMetadata == null ? 0L : offsetAndMetadata.offset();
+    }
+
     private String compactQuery(KafkaQuerySpec spec) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("operation", spec.getOperation());
         if (spec.getTopic() != null) payload.put("topic", spec.getTopic());
+        if (spec.getConsumerGroup() != null) payload.put("consumerGroup", spec.getConsumerGroup());
         if (spec.getPartition() != null) payload.put("partition", spec.getPartition());
         if (spec.getLimit() != null) payload.put("limit", spec.getLimit());
         if (spec.getFrom() != null) payload.put("from", spec.getFrom());
