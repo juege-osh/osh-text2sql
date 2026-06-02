@@ -278,6 +278,109 @@ class PromptServiceTest {
         Assertions.assertEquals("user_profile", dsl.get("table"));
     }
 
+    @Test
+    void shouldGenerateMysqlRecentListQueryForFeedbackTable() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.MYSQL)
+            .schema(Map.of(
+                "assistant_feedback", Map.of(
+                    "columns", List.of(
+                        Map.of("columnName", "id"),
+                        Map.of("columnName", "title"),
+                        Map.of("columnName", "create_time"),
+                        Map.of("columnName", "delete_flag")
+                    ),
+                    "indexes", List.of(
+                        Map.of("indexName", "idx_create_time", "columnName", "create_time")
+                    )
+                )
+            ))
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.MYSQL, "查询 assistant_feedback 表最近创建的 5 条反馈工单", schema);
+
+        Assertions.assertTrue(query.getQuery().contains("FROM assistant_feedback"));
+        Assertions.assertTrue(query.getQuery().contains("delete_flag = 0"));
+        Assertions.assertTrue(query.getQuery().contains("ORDER BY create_time DESC"));
+        Assertions.assertTrue(query.getQuery().contains("LIMIT 5"));
+    }
+
+    @Test
+    void shouldGenerateRedisScanCommandForListKeysQuestion() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.REDIS)
+            .schema(Map.of())
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.REDIS, "列出当前 Redis 数据库前 20 个 key", schema);
+
+        Assertions.assertEquals("SCAN 0", query.getQuery());
+    }
+
+    @Test
+    void shouldGenerateElasticsearchTopNQuery() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.ELASTICSEARCH)
+            .schema(Map.of(
+                "osh_course_index", Map.of(
+                    "fields", List.of("title", "sale_count", "status")
+                )
+            ))
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.ELASTICSEARCH, "查询 osh_course_index 中销量最高的 5 个课程", schema);
+        Map<String, Object> dsl = JsonUtils.fromJson(query.getQuery(), new com.fasterxml.jackson.core.type.TypeReference<>() {
+        });
+
+        Assertions.assertEquals("osh_course_index", dsl.get("_index"));
+        Assertions.assertEquals(5, dsl.get("size"));
+        Assertions.assertTrue(query.getQuery().contains("sale_count"));
+    }
+
+    @Test
+    void shouldGenerateKafkaReadMessagesDslForLatestMessagesQuestion() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.KAFKA)
+            .schema(Map.of(
+                "user-action", Map.of("partitions", 3)
+            ))
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.KAFKA, "查看 user-action topic 最近 10 条消息", schema);
+        Map<String, Object> dsl = JsonUtils.fromJson(query.getQuery(), new com.fasterxml.jackson.core.type.TypeReference<>() {
+        });
+
+        Assertions.assertEquals("READ_MESSAGES", dsl.get("operation"));
+        Assertions.assertEquals("user-action", dsl.get("topic"));
+        Assertions.assertEquals(10, dsl.get("limit"));
+        Assertions.assertEquals("LATEST", dsl.get("from"));
+    }
+
+    @Test
+    void shouldGenerateHbaseDescribeTableDsl() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.HBASE)
+            .schema(Map.of(
+                "user_profile", Map.of(
+                    "namespace", "default",
+                    "columnFamilies", List.of(Map.of("family", "info"))
+                )
+            ))
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.HBASE, "查看 user_profile 表结构", schema);
+        Map<String, Object> dsl = JsonUtils.fromJson(query.getQuery(), new com.fasterxml.jackson.core.type.TypeReference<>() {
+        });
+
+        Assertions.assertEquals("DESCRIBE_TABLE", dsl.get("operation"));
+        Assertions.assertEquals("user_profile", dsl.get("table"));
+    }
+
     private GeneratedQuery invokeFallbackGenerateQuery(PromptService promptService,
                                                        DatasourceType type,
                                                        String question,
