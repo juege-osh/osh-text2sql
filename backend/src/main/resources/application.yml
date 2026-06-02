@@ -26,12 +26,12 @@ spring:
   ai:
     chat:
       client:
-        enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:true}
+        enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:false}
     dashscope:
-      enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:true}
-      api-key: ${OSH_TEXT2SQL_DASHSCOPE_API_KEY:sk-24d8f24379034b35ba0233b801d9efca}
+      enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:false}
+      api-key: ${OSH_TEXT2SQL_DASHSCOPE_API_KEY:}
       chat:
-        enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:true}
+        enabled: ${OSH_TEXT2SQL_DASHSCOPE_ENABLED:false}
         options:
           model: ${OSH_TEXT2SQL_DASHSCOPE_MODEL:qwen-plus}
 
@@ -93,6 +93,12 @@ osh:
           enabled: true
           ttl-minutes: 30
           key-prefix: osh:text2sql:kafka:list
+      hbase:
+        enabled: true
+        zookeeper-quorum: ${OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM:43.242.200.25}
+        zookeeper-client-port: ${OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT:2181}
+        znode-parent: ${OSH_TEXT2SQL_HBASE_ZNODE_PARENT:/hbase}
+        namespace: ${OSH_TEXT2SQL_HBASE_NAMESPACE:default}
 
 logging:
   level:

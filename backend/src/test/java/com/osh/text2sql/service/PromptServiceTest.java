@@ -36,7 +36,7 @@ class PromptServiceTest {
             ))
             .build();
 
-        GeneratedQuery query = promptService.generateQuery(DatasourceType.MYSQL, "统计总共有多少个用户", schema);
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.MYSQL, "统计总共有多少个用户", schema);
 
         Assertions.assertEquals("SELECT COUNT(*) AS total_users FROM osh_user WHERE delete_flag = 0", query.getQuery());
     }
@@ -69,7 +69,7 @@ class PromptServiceTest {
             ))
             .build();
 
-        GeneratedQuery query = promptService.generateQuery(DatasourceType.MYSQL, "用户id23的用户有分别有多少工具的可用次数", schema);
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.MYSQL, "用户id23的用户有分别有多少工具的可用次数", schema);
 
         Assertions.assertEquals("SELECT tool_id, remaining_count FROM osh_user_tool_quota WHERE user_id = 23", query.getQuery());
     }
@@ -111,6 +111,31 @@ class PromptServiceTest {
         Assertions.assertEquals("COUNT_UNCONSUMED_MESSAGES", dsl.get("operation"));
         Assertions.assertEquals("pay-success-topic", dsl.get("topic"));
         Assertions.assertEquals("pay-success-group", dsl.get("consumerGroup"));
+    }
+
+    @Test
+    void shouldGenerateKafkaUnconsumedDslWithKeyFilter() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.KAFKA)
+            .schema(Map.of(
+                "pay-success-topic", Map.of("partitions", 1)
+            ))
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(
+            promptService,
+            DatasourceType.KAFKA,
+            "topic pay-success-topic 对 consumer group pay-success-group 中 key 为 tool-1001 的消息还有多少条没被消费",
+            schema
+        );
+        Map<String, Object> dsl = JsonUtils.fromJson(query.getQuery(), new com.fasterxml.jackson.core.type.TypeReference<>() {
+        });
+
+        Assertions.assertEquals("COUNT_UNCONSUMED_MESSAGES", dsl.get("operation"));
+        Assertions.assertEquals("pay-success-topic", dsl.get("topic"));
+        Assertions.assertEquals("pay-success-group", dsl.get("consumerGroup"));
+        Assertions.assertEquals("tool-1001", dsl.get("keyContains"));
     }
 
     @Test
@@ -230,6 +255,27 @@ class PromptServiceTest {
         String answer = promptService.explainResult("查询可用工具的数量", result);
 
         Assertions.assertEquals("根据查询结果，available_tool_count 为 4。", answer);
+    }
+
+    @Test
+    void shouldGenerateHbaseScanDslForFallbackQuery() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+        DatasourceSchemaResponse schema = DatasourceSchemaResponse.builder()
+            .type(DatasourceType.HBASE)
+            .schema(Map.of(
+                "user_profile", Map.of(
+                    "namespace", "default",
+                    "columnFamilies", List.of(Map.of("family", "info"))
+                )
+            ))
+            .build();
+
+        GeneratedQuery query = invokeFallbackGenerateQuery(promptService, DatasourceType.HBASE, "查看 user_profile 表前 10 行数据", schema);
+        Map<String, Object> dsl = JsonUtils.fromJson(query.getQuery(), new com.fasterxml.jackson.core.type.TypeReference<>() {
+        });
+
+        Assertions.assertEquals("SCAN_ROWS", dsl.get("operation"));
+        Assertions.assertEquals("user_profile", dsl.get("table"));
     }
 
     private GeneratedQuery invokeFallbackGenerateQuery(PromptService promptService,

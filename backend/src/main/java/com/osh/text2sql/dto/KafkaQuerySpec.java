@@ -8,6 +8,7 @@ public class KafkaQuerySpec {
     private Integer limit;
     private Boolean includeInternal;
     private String topic;
+    private String consumerGroup;
     private Integer partition;
     private Long offset;
     private String from;

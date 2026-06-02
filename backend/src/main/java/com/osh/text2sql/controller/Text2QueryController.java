@@ -4,6 +4,10 @@ import com.osh.text2sql.dto.ConnectionProfile;
 import com.osh.text2sql.dto.ConnectionTestResponse;
 import com.osh.text2sql.dto.DatasourceSchemaResponse;
 import com.osh.text2sql.dto.DatasourceType;
+import com.osh.text2sql.dto.MysqlTableListResponse;
+import com.osh.text2sql.dto.MysqlTableOperationRequest;
+import com.osh.text2sql.dto.MysqlTableSchemaResponse;
+import com.osh.text2sql.dto.QueryExecutionResult;
 import com.osh.text2sql.dto.QueryRequest;
 import com.osh.text2sql.dto.QueryResponse;
 import com.osh.text2sql.dto.WorkspaceSnapshotResponse;
@@ -49,5 +53,25 @@ public class Text2QueryController {
     @GetMapping("/snapshot")
     public WorkspaceSnapshotResponse snapshot() {
         return text2QueryService.snapshot();
+    }
+
+    @PostMapping("/mysql/tables")
+    public MysqlTableListResponse mysqlTables(@RequestBody ConnectionProfile profile) {
+        return text2QueryService.mysqlTables(profile);
+    }
+
+    @PostMapping("/mysql/tables/refresh")
+    public MysqlTableListResponse refreshMysqlTables(@RequestBody ConnectionProfile profile) {
+        return text2QueryService.refreshMysqlTables(profile);
+    }
+
+    @PostMapping("/mysql/table-schema")
+    public MysqlTableSchemaResponse mysqlTableSchema(@Valid @RequestBody MysqlTableOperationRequest request) {
+        return text2QueryService.mysqlTableSchema(request);
+    }
+
+    @PostMapping("/mysql/table-preview")
+    public QueryExecutionResult mysqlTablePreview(@Valid @RequestBody MysqlTableOperationRequest request) {
+        return text2QueryService.mysqlTablePreview(request);
     }
 }

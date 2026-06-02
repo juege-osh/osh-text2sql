@@ -6,6 +6,7 @@ import com.osh.text2sql.dto.ConnectionTestResponse;
 import com.osh.text2sql.dto.DatasourceSchemaResponse;
 import com.osh.text2sql.dto.DatasourceType;
 import com.osh.text2sql.dto.GeneratedQuery;
+import com.osh.text2sql.dto.HbaseQuerySpec;
 import com.osh.text2sql.dto.KafkaQuerySpec;
 import com.osh.text2sql.dto.PromptOutput;
 import com.osh.text2sql.dto.QueryExecutionResult;
@@ -88,11 +89,26 @@ public class PromptService {
         7. 按偏移量读取消息时，operation 使用 READ_MESSAGES，并提供 topic、partition、limit、from=OFFSET、offset。
         8. 如果用户要统计某个 topic 一共有多少条消息、消息总数、累计消息位点，使用 COUNT_MESSAGES，并提供 topic。
         9. 如果用户要统计某个 topic 对某个 consumer group 还有多少消息未消费、消费积压多少，使用 COUNT_UNCONSUMED_MESSAGES，并同时提供 topic 和 consumerGroup。
-        10. 如果用户问未消费消息、消费积压，但没有明确 consumerGroup，不要猜测，不要退化成 COUNT_MESSAGES，必须返回缺少 consumerGroup 的语义。
-        11. COUNT_MESSAGES 和 COUNT_UNCONSUMED_MESSAGES 都不用于读取消息内容，不要附带 keyContains、valueContains、partition、from、offset。
-        12. 如果用户要“看最近消息/最新消息”，优先用 READ_MESSAGES + from=LATEST。
-        13. 如果用户要“看 topic 列表/有哪些主题”，用 LIST_TOPICS。
-        14. 如果用户要“看 topic 分区/详情”，用 DESCRIBE_TOPIC。
+        10. 如果用户在查询某个 consumer group 未消费消息时还明确给了 key 条件，例如 key 为 xxx、key 包含 xxx，也要保留 keyContains 条件，不要丢失。
+        11. 如果用户问未消费消息、消费积压，但没有明确 consumerGroup，不要猜测，不要退化成 COUNT_MESSAGES，必须返回缺少 consumerGroup 的语义。
+        12. COUNT_MESSAGES 不用于读取消息内容，不要附带 keyContains、valueContains、partition、from、offset。
+        13. 如果用户要“看最近消息/最新消息”，优先用 READ_MESSAGES + from=LATEST。
+        14. 如果用户要“看 topic 列表/有哪些主题”，用 LIST_TOPICS。
+        15. 如果用户要“看 topic 分区/详情”，用 DESCRIBE_TOPIC。
+        """;
+
+    private static final String GENERATE_QUERY_HBASE_RULES = """
+        HBase 规则：
+        1. 只能输出只读 HBase Query DSL JSON。
+        2. operation 只能是 LIST_TABLES、DESCRIBE_TABLE、GET_ROW、SCAN_ROWS、COUNT_ROWS。
+        3. HBase 查询 DSL 字段包括 operation、namespace、table、rowKey、rowKeyPrefix、limit、maxVersions、columns。
+        4. 查看 HBase 表列表时，使用 LIST_TABLES。
+        5. 查看某张表结构或列族时，使用 DESCRIBE_TABLE，并提供 table。
+        6. 按 rowKey 查询时，使用 GET_ROW，并提供 table 和 rowKey。
+        7. 浏览前几行或按前缀扫描时，使用 SCAN_ROWS，并提供 table、limit，可选 rowKeyPrefix。
+        8. 统计某张表记录数量时，使用 COUNT_ROWS，并提供 table。
+        9. columns 使用 family 或 family:qualifier 形式，例如 info 或 info:name。
+        10. 如果用户没有明确 namespace，默认使用 default。
         """;
 
     private static final PromptTemplate EXPLAIN_RESULT_TEMPLATE = new PromptTemplate("""
@@ -244,6 +260,7 @@ public class PromptService {
                 .build();
             case ELASTICSEARCH -> fallbackElasticsearchQuery(question, schema);
             case KAFKA -> fallbackKafkaQuery(question, schema);
+            case HBASE -> fallbackHbaseQuery(question, schema);
         };
     }
 
@@ -524,6 +541,16 @@ public class PromptService {
             spec.put("operation", "COUNT_UNCONSUMED_MESSAGES");
             spec.put("topic", topic);
             spec.put("consumerGroup", consumerGroup);
+            String keyContains = extractKeywordAfter(question, "key包含");
+            if (keyContains == null) {
+                keyContains = extractKeywordAfter(question, "key为");
+            }
+            if (keyContains == null) {
+                keyContains = extractKeywordAfter(question, "key是");
+            }
+            if (keyContains != null) {
+                spec.put("keyContains", keyContains);
+            }
         } else if (isKafkaMessageCountQuestion(question) && topic != null) {
             spec.put("operation", "COUNT_MESSAGES");
             spec.put("topic", topic);
@@ -553,6 +580,51 @@ public class PromptService {
             .build();
     }
 
+    private GeneratedQuery fallbackHbaseQuery(String question, DatasourceSchemaResponse schemaResponse) {
+        Map<String, Object> schema = asObject(schemaResponse.getSchema());
+        String table = resolveSchemaObjectName(question, schema.keySet().stream().toList());
+        Map<String, Object> spec = new LinkedHashMap<>();
+        spec.put("namespace", "default");
+
+        if (question.contains("表列表") || question.contains("哪些表") || question.contains("列出表")) {
+            spec.put("operation", "LIST_TABLES");
+            spec.put("limit", extractLimit(question, 50));
+        } else if ((question.contains("结构") || question.contains("列族") || question.contains("schema")) && table != null) {
+            spec.put("operation", "DESCRIBE_TABLE");
+            spec.put("table", table);
+        } else if ((question.toLowerCase(Locale.ROOT).contains("rowkey") || question.contains("主键")) && table != null) {
+            spec.put("operation", "GET_ROW");
+            spec.put("table", table);
+            String rowKey = extractKeywordAfter(question, "rowKey");
+            if (rowKey == null) {
+                rowKey = extractKeywordAfter(question, "rowkey");
+            }
+            if (rowKey == null) {
+                rowKey = extractKeywordAfter(question, "为");
+            }
+            if (rowKey != null) {
+                spec.put("rowKey", rowKey);
+            }
+        } else if (isCountQuestion(question.toLowerCase(Locale.ROOT)) && table != null) {
+            spec.put("operation", "COUNT_ROWS");
+            spec.put("table", table);
+            spec.put("limit", extractLimit(question, 100));
+        } else {
+            spec.put("operation", "SCAN_ROWS");
+            if (table != null) {
+                spec.put("table", table);
+            }
+            spec.put("limit", extractLimit(question, 10));
+        }
+
+        return GeneratedQuery.builder()
+            .type(DatasourceType.HBASE)
+            .query(JsonUtils.toJson(spec))
+            .reasoning("当前未启用 AI，已按 HBase 表名、rowKey 和扫描语义生成只读 HBase 查询 DSL。")
+            .safetyNotes("HBase 仅支持表列表、表结构、按 rowKey 查询、扫描和计数等只读操作。")
+            .build();
+    }
+
     private String fallbackRedisQuery(String question) {
         if (question.contains("key") || question.contains("键")) {
             return "SCAN 0";
@@ -573,6 +645,7 @@ public class PromptService {
             case REDIS -> "Redis 查询已完成，%s。".formatted(result.getSummary());
             case ELASTICSEARCH -> "Elasticsearch 查询已完成，%s。".formatted(result.getSummary());
             case KAFKA -> "Kafka 查询已完成，%s。".formatted(result.getSummary());
+            case HBASE -> "HBase 查询已完成，%s。".formatted(result.getSummary());
         };
     }
 
@@ -1088,6 +1161,7 @@ public class PromptService {
             case REDIS -> GENERATE_QUERY_REDIS_RULES;
             case ELASTICSEARCH -> GENERATE_QUERY_ES_RULES;
             case KAFKA -> GENERATE_QUERY_KAFKA_RULES;
+            case HBASE -> GENERATE_QUERY_HBASE_RULES;
         };
     }
 
@@ -1169,7 +1243,21 @@ public class PromptService {
         if (type == DatasourceType.KAFKA) {
             query = normalizeKafkaGeneratedQuery(question, query);
         }
+        if (type == DatasourceType.HBASE) {
+            query = normalizeHbaseGeneratedQuery(query);
+        }
         return query;
+    }
+
+    private String normalizeHbaseGeneratedQuery(String query) {
+        HbaseQuerySpec spec = JsonUtils.fromJson(query, HbaseQuerySpec.class);
+        if (spec == null) {
+            return query;
+        }
+        if (StrUtil.isBlank(spec.getNamespace())) {
+            spec.setNamespace("default");
+        }
+        return JsonUtils.toJson(spec);
     }
 
     private String normalizeKafkaGeneratedQuery(String question, String query) {

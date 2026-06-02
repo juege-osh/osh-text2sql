@@ -54,4 +54,21 @@ class KafkaQueryValidatorTest {
             }
             """));
     }
+
+    @Test
+    void shouldNormalizeCountUnconsumedMessagesWithKeyFilter() {
+        KafkaQuerySpec spec = KafkaQueryValidator.validate("""
+            {
+              "operation": "count_unconsumed_messages",
+              "topic": "user-action",
+              "consumerGroup": "user-action-group",
+              "keyContains": "tool-1001"
+            }
+            """);
+
+        Assertions.assertEquals("COUNT_UNCONSUMED_MESSAGES", spec.getOperation());
+        Assertions.assertEquals("user-action", spec.getTopic());
+        Assertions.assertEquals("user-action-group", spec.getConsumerGroup());
+        Assertions.assertEquals("tool-1001", spec.getKeyContains());
+    }
 }

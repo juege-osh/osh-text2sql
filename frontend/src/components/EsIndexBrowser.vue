@@ -6,7 +6,7 @@
         <p>默认展示当前集群已有的 index，以及每个 index 当前的文档数量和状态。</p>
       </div>
       <el-button class="ghost-button" size="small" :loading="loading" @click="emit('refresh')">
-        刷新列表
+        实时刷新
       </el-button>
     </div>
 
@@ -51,10 +51,33 @@ const emit = defineEmits<{
 const keyword = ref('')
 
 const filteredIndices = computed(() => {
-  const search = keyword.value.trim().toLowerCase()
+  const search = normalizeFuzzyText(keyword.value)
   if (!search) return props.data.indices
-  return props.data.indices.filter((item) => item.index.toLowerCase().includes(search))
+  return props.data.indices.filter((item) => fuzzyMatch(item.index, search))
 })
+
+function normalizeFuzzyText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\-\s]+/g, '')
+}
+
+function fuzzyMatch(source: string, keyword: string) {
+  const normalizedSource = normalizeFuzzyText(source)
+  if (!keyword) return true
+  if (normalizedSource.includes(keyword)) return true
+
+  let sourceIndex = 0
+  let keywordIndex = 0
+  while (sourceIndex < normalizedSource.length && keywordIndex < keyword.length) {
+    if (normalizedSource[sourceIndex] === keyword[keywordIndex]) {
+      keywordIndex++
+    }
+    sourceIndex++
+  }
+  return keywordIndex === keyword.length
+}
 </script>
 
 <style scoped>

@@ -21,7 +21,9 @@ public class Text2SqlProperties {
 
     @Data
     public static class AiProperties {
+        private String provider = "aicodee";
         private boolean explainResult = true;
+        private String reasoningEffort = "medium";
     }
 
     @Data
@@ -30,6 +32,7 @@ public class Text2SqlProperties {
         private RedisProperties redis = new RedisProperties();
         private ElasticsearchProperties elasticsearch = new ElasticsearchProperties();
         private KafkaProperties kafka = new KafkaProperties();
+        private HbaseProperties hbase = new HbaseProperties();
     }
 
     @Data
@@ -43,6 +46,7 @@ public class Text2SqlProperties {
         @NotBlank
         private String username;
         private String password;
+        private SchemaCacheProperties schemaCache = new SchemaCacheProperties();
     }
 
     @Data
@@ -73,5 +77,22 @@ public class Text2SqlProperties {
         private String saslMechanism;
         private String username;
         private String password;
+    }
+
+    @Data
+    public static class HbaseProperties {
+        private boolean enabled = true;
+        @NotBlank
+        private String zookeeperQuorum;
+        private int zookeeperClientPort = 2181;
+        private String znodeParent = "/hbase";
+        private String namespace = "default";
+    }
+
+    @Data
+    public static class SchemaCacheProperties {
+        private boolean enabled = true;
+        private int ttlMinutes = 180;
+        private String keyPrefix = "osh:text2sql:mysql:schema";
     }
 }
