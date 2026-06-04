@@ -18,7 +18,7 @@
         <hutool.version>5.8.33</hutool.version>
         <jackson.version>2.18.2</jackson.version>
         <jedis.version>5.2.0</jedis.version>
-        <hbase.version>2.5.6</hbase.version>
+        <hbase.version>2.5.14</hbase.version>
         <frontend.dist.dir>${project.basedir}/../frontend/dist</frontend.dist.dir>
     </properties>
 
@@ -101,11 +101,23 @@
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-client</artifactId>
             <version>${hbase.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-common</artifactId>
             <version>${hbase.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

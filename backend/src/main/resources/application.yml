@@ -97,7 +97,7 @@ osh:
         enabled: true
         zookeeper-quorum: ${OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM:43.242.200.25}
         zookeeper-client-port: ${OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT:2181}
-        znode-parent: ${OSH_TEXT2SQL_HBASE_ZNODE_PARENT:/hbase}
+        znode-parent: ${OSH_TEXT2SQL_HBASE_ZNODE_PARENT:/hbase-2514}
         namespace: ${OSH_TEXT2SQL_HBASE_NAMESPACE:default}
 
 logging:
