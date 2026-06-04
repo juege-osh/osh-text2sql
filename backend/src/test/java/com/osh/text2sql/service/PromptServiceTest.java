@@ -244,6 +244,28 @@ class PromptServiceTest {
     }
 
     @Test
+    void shouldParsePromptOutputWhenQueryIsJsonObject() {
+        PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
+
+        PromptOutput output = invokeParsePromptOutput(promptService, """
+            {
+              "query": {
+                "operation": "READ_MESSAGES",
+                "topic": "user-action",
+                "limit": 10,
+                "from": "LATEST"
+              },
+              "reasoning": "查看最近消息",
+              "safetyNotes": []
+            }
+            """);
+
+        Assertions.assertTrue(String.valueOf(output.getQuery()).contains("READ_MESSAGES"));
+        Assertions.assertEquals("查看最近消息", output.getReasoning());
+        Assertions.assertEquals("[]", output.getSafetyNotes());
+    }
+
+    @Test
     void shouldUseFallbackExplainForSingleValueResult() {
         PromptService promptService = new PromptService((org.springframework.ai.chat.client.ChatClient) null);
         QueryExecutionResult result = QueryExecutionResult.builder()

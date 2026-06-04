@@ -626,27 +626,38 @@ const examples: Record<DatasourceType, string[]> = {
   MYSQL: [
     '查询 assistant_feedback 表最近创建的 5 条反馈工单',
     '统计总共有多少个用户',
-    '列出 osh_book 表价格最高的 5 本电子书'
+    '列出 osh_book 表价格最高的 5 本电子书',
+    '查询可用工具的数量',
+    '查询 osh_course 表最近上架的 10 个课程',
+    '统计 osh_bbs_post 表总共有多少条帖子'
   ],
   REDIS: [
     '列出当前 Redis 数据库前 20 个 key',
     '查看某个 key 的类型和 TTL',
-    '查询一个列表 key 的前 10 条内容'
+    '查询一个列表 key 的前 10 条内容',
+    '查看 key user:1001:profile 的类型和 TTL',
+    '扫描包含 tool 的 Redis key'
   ],
   ELASTICSEARCH: [
     '查询 osh_course_index 中销量最高的 5 个课程',
     '搜索标题包含 测试课程 的课程文档',
-    '统计 osh_book_search_read 中最热门的电子书'
+    '统计 osh_book_search_read 中最热门的电子书',
+    '查询 osh_tool_search 中标题包含 AI 的工具',
+    '查看 osh_course_index 最近热门的课程'
   ],
   KAFKA: [
     '列出当前 Kafka 集群的 topic 列表',
     '查看 user-action topic 最近 10 条消息',
-    '查看 osh.tool.index topic 的分区详情'
+    '查看 osh.tool.index topic 的分区详情',
+    '查询 topic osh-kafka-key-status-test 对 consumer group osh-kafka-key-status-group 中 key 为 tool-1001 的消息消费情况',
+    '查看 pay-success-topic 最近 5 条消息'
   ],
   HBASE: [
     '列出当前 HBase 命名空间下的表',
     '查看 user_profile 表结构',
-    '查询 user_profile 表中 rowKey 为 user:1001 的数据'
+    '查询 user_profile 表中 rowKey 为 user:1001 的数据',
+    '查看 user_profile 表前 10 行数据',
+    '统计 user_profile 表记录数量'
   ]
 }
 

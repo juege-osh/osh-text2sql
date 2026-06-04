@@ -6,6 +6,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,6 +15,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class HbaseSupport {
+
+    private static final Logger log = LoggerFactory.getLogger(HbaseSupport.class);
 
     public Connection createConnection(ConnectionProfile profile) throws IOException {
         return ConnectionFactory.createConnection(createConfiguration(profile));
@@ -26,6 +30,10 @@ public class HbaseSupport {
         configuration.setInt("hbase.rpc.timeout", 8000);
         configuration.setInt("hbase.client.operation.timeout", 10000);
         configuration.setInt("hbase.client.scanner.timeout.period", 10000);
+        log.info("HBase 连接配置：zookeeperQuorum={}, zookeeperClientPort={}, znodeParent={}",
+            configuration.get("hbase.zookeeper.quorum"),
+            configuration.get("hbase.zookeeper.property.clientPort"),
+            configuration.get("zookeeper.znode.parent"));
         return configuration;
     }
 }

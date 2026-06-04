@@ -92,6 +92,12 @@ jobs:
           OSH_TEXT2SQL_DASHSCOPE_ENABLED=${{ vars.OSH_TEXT2SQL_DASHSCOPE_ENABLED || 'true' }}
           OSH_TEXT2SQL_DASHSCOPE_API_KEY=${{ secrets.OSH_TEXT2SQL_DASHSCOPE_API_KEY }}
           OSH_TEXT2SQL_DASHSCOPE_MODEL=${{ vars.OSH_TEXT2SQL_DASHSCOPE_MODEL || 'qwen-plus' }}
+          OSH_TEXT2SQL_AI_PROVIDER=${{ vars.OSH_TEXT2SQL_AI_PROVIDER || 'aicodee' }}
+          OSH_TEXT2SQL_AI_REASONING_EFFORT=${{ vars.OSH_TEXT2SQL_AI_REASONING_EFFORT || 'medium' }}
+          OSH_TEXT2SQL_AICODEE_API_KEY=${{ secrets.OSH_TEXT2SQL_AICODEE_API_KEY }}
+          OSH_TEXT2SQL_AICODEE_BASE_URL=${{ vars.OSH_TEXT2SQL_AICODEE_BASE_URL || 'https://v2.aicodee.com' }}
+          OSH_TEXT2SQL_AICODEE_MODEL=${{ vars.OSH_TEXT2SQL_AICODEE_MODEL || 'MiniMax-M2.7-highspeed' }}
+          OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH=${{ vars.OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH || '/v1/chat/completions' }}
           OSH_TEXT2SQL_MYSQL_HOST=${{ vars.OSH_TEXT2SQL_MYSQL_HOST || '43.242.200.25' }}
           OSH_TEXT2SQL_MYSQL_PORT=${{ vars.OSH_TEXT2SQL_MYSQL_PORT || '3306' }}
           OSH_TEXT2SQL_MYSQL_DATABASE=${{ vars.OSH_TEXT2SQL_MYSQL_DATABASE || 'backstage' }}
@@ -109,6 +115,10 @@ jobs:
           OSH_TEXT2SQL_KAFKA_SASL_MECHANISM=${{ vars.OSH_TEXT2SQL_KAFKA_SASL_MECHANISM || '' }}
           OSH_TEXT2SQL_KAFKA_USERNAME=${{ secrets.OSH_TEXT2SQL_KAFKA_USERNAME }}
           OSH_TEXT2SQL_KAFKA_PASSWORD=${{ secrets.OSH_TEXT2SQL_KAFKA_PASSWORD }}
+          OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM=${{ vars.OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM || '43.242.200.25' }}
+          OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT=${{ vars.OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT || '2181' }}
+          OSH_TEXT2SQL_HBASE_ZNODE_PARENT=${{ vars.OSH_TEXT2SQL_HBASE_ZNODE_PARENT || '/hbase-2514' }}
+          OSH_TEXT2SQL_HBASE_NAMESPACE=${{ vars.OSH_TEXT2SQL_HBASE_NAMESPACE || 'default' }}
           EOF
           chmod 600 '$DEPLOY_ROOT/shared/app.env'"
 
@@ -123,7 +133,7 @@ jobs:
       - name: Verify remote health
         run: |
           ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "\
-            for i in \$(seq 1 30); do \
+            for i in \$(seq 1 60); do \
               if curl -fsS 'http://127.0.0.1:${APP_PORT}/api/health' >/dev/null; then \
                 exit 0; \
               fi; \
@@ -131,3 +141,13 @@ jobs:
             done; \
             exit 1"
           curl -fsS "http://$DEPLOY_HOST:${APP_PORT}/api/health"
+
+      - name: Dump remote diagnostics on failure
+        if: failure()
+        run: |
+          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "\
+            set -x; \
+            ROOT='$DEPLOY_ROOT'; \
+            [ -x \"\$ROOT/bin/status.sh\" ] && \"\$ROOT/bin/status.sh\" || true; \
+            [ -f \"\$ROOT/logs/backend.log\" ] && tail -n 200 \"\$ROOT/logs/backend.log\" || true; \
+            ss -lntp | egrep '${APP_PORT}|9100|16100|16120' || true"

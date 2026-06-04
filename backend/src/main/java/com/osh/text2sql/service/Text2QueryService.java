@@ -181,14 +181,34 @@ public class Text2QueryService {
                     .prompt("统计 osh_bbs_post 表总共有多少条帖子")
                     .build(),
                 QuerySuggestion.builder()
+                    .type(DatasourceType.MYSQL)
+                    .title("可用工具数量")
+                    .prompt("查询可用工具的数量")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.MYSQL)
+                    .title("最近上架课程")
+                    .prompt("查询 osh_course 表最近上架的 10 个课程")
+                    .build(),
+                QuerySuggestion.builder()
                     .type(DatasourceType.ELASTICSEARCH)
                     .title("课程销量排行")
                     .prompt("查询 osh_course_index 中销量最高的 5 个课程")
                     .build(),
                 QuerySuggestion.builder()
+                    .type(DatasourceType.ELASTICSEARCH)
+                    .title("工具标题搜索")
+                    .prompt("查询 osh_tool_search 中标题包含 AI 的工具")
+                    .build(),
+                QuerySuggestion.builder()
                     .type(DatasourceType.REDIS)
                     .title("查看 key")
                     .prompt("列出当前 Redis 数据库前 20 个 key")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.REDIS)
+                    .title("查看指定 key")
+                    .prompt("查看 key user:1001:profile 的类型和 TTL")
                     .build(),
                 QuerySuggestion.builder()
                     .type(DatasourceType.KAFKA)
@@ -201,6 +221,11 @@ public class Text2QueryService {
                     .prompt("查看 user-action topic 最近 10 条消息")
                     .build(),
                 QuerySuggestion.builder()
+                    .type(DatasourceType.KAFKA)
+                    .title("按 key 查消费情况")
+                    .prompt("查询 topic osh-kafka-key-status-test 对 consumer group osh-kafka-key-status-group 中 key 为 tool-1001 的消息消费情况")
+                    .build(),
+                QuerySuggestion.builder()
                     .type(DatasourceType.HBASE)
                     .title("查看表列表")
                     .prompt("列出当前 HBase 命名空间下的表")
@@ -209,6 +234,11 @@ public class Text2QueryService {
                     .type(DatasourceType.HBASE)
                     .title("按 rowKey 查询")
                     .prompt("查询 user_profile 表中 rowKey 为 user:1001 的数据")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.HBASE)
+                    .title("查看表前 10 行")
+                    .prompt("查看 user_profile 表前 10 行数据")
                     .build()
             ))
             .build();

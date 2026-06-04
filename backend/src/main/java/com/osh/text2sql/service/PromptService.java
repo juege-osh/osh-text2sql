@@ -1172,17 +1172,30 @@ public class PromptService {
     }
 
     private PromptOutput extractPromptOutputFields(String content) {
-        String query = extractJsonStringField(content, "query");
-        if (StrUtil.isBlank(query)) {
-            return null;
+        try {
+            Map<String, Object> payload = JsonUtils.fromJson(content, new TypeReference<>() {
+            });
+            if (payload == null || payload.isEmpty() || !payload.containsKey("query")) {
+                return null;
+            }
+            PromptOutput output = new PromptOutput();
+            output.setQuery(payload.get("query"));
+            output.setReasoning(stringifyTextField(payload.get("reasoning")));
+            output.setSafetyNotes(stringifyTextField(payload.get("safetyNotes")));
+            return output;
+        } catch (Exception exception) {
+            String query = extractJsonStringField(content, "query");
+            if (StrUtil.isBlank(query)) {
+                return null;
+            }
+            String reasoning = extractJsonStringField(content, "reasoning");
+            String safetyNotes = extractJsonStringField(content, "safetyNotes");
+            PromptOutput output = new PromptOutput();
+            output.setQuery(query);
+            output.setReasoning(reasoning == null ? "" : reasoning);
+            output.setSafetyNotes(safetyNotes == null ? "" : safetyNotes);
+            return output;
         }
-        String reasoning = extractJsonStringField(content, "reasoning");
-        String safetyNotes = extractJsonStringField(content, "safetyNotes");
-        PromptOutput output = new PromptOutput();
-        output.setQuery(query);
-        output.setReasoning(reasoning == null ? "" : reasoning);
-        output.setSafetyNotes(safetyNotes == null ? "" : safetyNotes);
-        return output;
     }
 
     private String extractJsonStringField(String content, String fieldName) {
@@ -1206,6 +1219,22 @@ public class PromptService {
             return compact;
         }
         return compact.substring(0, 300) + "...";
+    }
+
+    private String stringifyTextField(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof String text) {
+            return text;
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(item -> item == null ? "" : String.valueOf(item)).filter(StrUtil::isNotBlank).toList().toString();
+        }
+        if (value instanceof Map<?, ?> map) {
+            return JsonUtils.toJson(map);
+        }
+        return String.valueOf(value);
     }
 
     private String stringifyQuery(Object query) {
