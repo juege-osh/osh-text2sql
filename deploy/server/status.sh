@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${OSH_TEXT2SQL_DEPLOY_ROOT:-/www/osh-text2sql}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="${OSH_TEXT2SQL_DEPLOY_ROOT:-$DEFAULT_ROOT}"
 ENV_FILE="$ROOT_DIR/shared/app.env"
 PID_FILE="$ROOT_DIR/run/osh-text2sql.pid"
 APP_PORT=19100

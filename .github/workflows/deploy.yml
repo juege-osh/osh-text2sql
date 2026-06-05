@@ -15,9 +15,9 @@ concurrency:
 env:
   NODE_VERSION: '22'
   JAVA_VERSION: '17'
-  DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST || '43.242.200.25' }}
-  DEPLOY_USER: ${{ secrets.DEPLOY_USER || vars.DEPLOY_USER || 'root' }}
-  DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || vars.DEPLOY_PORT || '58753' }}
+  DEPLOY_HOST: ${{ vars.DEPLOY_HOST || '43.242.200.25' }}
+  DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
+  DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '58753' }}
   DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT || '/www/osh-text2sql' }}
   APP_PORT: ${{ vars.OSH_TEXT2SQL_SERVER_PORT || '19100' }}
 
@@ -42,6 +42,19 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
+
+      - name: Validate deployment config
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_ROOT"
+          if [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
+            echo "::error::Missing required secret DEPLOY_SSH_PRIVATE_KEY"
+            exit 1
+          fi
 
       - name: Build frontend
         working-directory: frontend
@@ -85,42 +98,105 @@ jobs:
             deploy/server/ \
             "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_ROOT/bin/"
 
-      - name: Write remote environment file
+      - name: Build remote environment file
+        env:
+          ENV_OSH_TEXT2SQL_SERVER_PORT: ${{ vars.OSH_TEXT2SQL_SERVER_PORT || '19100' }}
+          ENV_OSH_TEXT2SQL_DASHSCOPE_ENABLED: ${{ vars.OSH_TEXT2SQL_DASHSCOPE_ENABLED || 'true' }}
+          ENV_OSH_TEXT2SQL_DASHSCOPE_API_KEY: ${{ secrets.OSH_TEXT2SQL_DASHSCOPE_API_KEY }}
+          ENV_OSH_TEXT2SQL_DASHSCOPE_MODEL: ${{ vars.OSH_TEXT2SQL_DASHSCOPE_MODEL || 'qwen-plus' }}
+          ENV_OSH_TEXT2SQL_AI_PROVIDER: ${{ vars.OSH_TEXT2SQL_AI_PROVIDER || 'dashscope' }}
+          ENV_OSH_TEXT2SQL_AI_REASONING_EFFORT: ${{ vars.OSH_TEXT2SQL_AI_REASONING_EFFORT || 'medium' }}
+          ENV_OSH_TEXT2SQL_AICODEE_API_KEY: ${{ secrets.OSH_TEXT2SQL_AICODEE_API_KEY }}
+          ENV_OSH_TEXT2SQL_AICODEE_BASE_URL: ${{ vars.OSH_TEXT2SQL_AICODEE_BASE_URL || 'https://v2.aicodee.com' }}
+          ENV_OSH_TEXT2SQL_AICODEE_MODEL: ${{ vars.OSH_TEXT2SQL_AICODEE_MODEL || 'MiniMax-M2.7-highspeed' }}
+          ENV_OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH: ${{ vars.OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH || '/v1/chat/completions' }}
+          ENV_OSH_TEXT2SQL_OPENAI_API_KEY: ${{ secrets.OSH_TEXT2SQL_OPENAI_API_KEY }}
+          ENV_OSH_TEXT2SQL_OPENAI_BASE_URL: ${{ vars.OSH_TEXT2SQL_OPENAI_BASE_URL || 'https://ai.yaoyanryan.dpdns.org' }}
+          ENV_OSH_TEXT2SQL_OPENAI_MODEL: ${{ vars.OSH_TEXT2SQL_OPENAI_MODEL || 'gpt-5.4' }}
+          ENV_OSH_TEXT2SQL_OPENAI_COMPLETIONS_PATH: ${{ vars.OSH_TEXT2SQL_OPENAI_COMPLETIONS_PATH || '/v1/chat/completions' }}
+          ENV_OSH_TEXT2SQL_MYSQL_HOST: ${{ vars.OSH_TEXT2SQL_MYSQL_HOST || '43.242.200.25' }}
+          ENV_OSH_TEXT2SQL_MYSQL_PORT: ${{ vars.OSH_TEXT2SQL_MYSQL_PORT || '3306' }}
+          ENV_OSH_TEXT2SQL_MYSQL_DATABASE: ${{ vars.OSH_TEXT2SQL_MYSQL_DATABASE || 'backstage' }}
+          ENV_OSH_TEXT2SQL_MYSQL_USERNAME: ${{ secrets.OSH_TEXT2SQL_MYSQL_USERNAME }}
+          ENV_OSH_TEXT2SQL_MYSQL_PASSWORD: ${{ secrets.OSH_TEXT2SQL_MYSQL_PASSWORD }}
+          ENV_OSH_TEXT2SQL_REDIS_HOST: ${{ vars.OSH_TEXT2SQL_REDIS_HOST || '43.242.200.25' }}
+          ENV_OSH_TEXT2SQL_REDIS_PORT: ${{ vars.OSH_TEXT2SQL_REDIS_PORT || '6379' }}
+          ENV_OSH_TEXT2SQL_REDIS_DATABASE: ${{ vars.OSH_TEXT2SQL_REDIS_DATABASE || '0' }}
+          ENV_OSH_TEXT2SQL_REDIS_PASSWORD: ${{ secrets.OSH_TEXT2SQL_REDIS_PASSWORD }}
+          ENV_OSH_TEXT2SQL_ES_BASE_URL: ${{ vars.OSH_TEXT2SQL_ES_BASE_URL || 'http://43.242.200.25:9200' }}
+          ENV_OSH_TEXT2SQL_ES_USERNAME: ${{ secrets.OSH_TEXT2SQL_ES_USERNAME }}
+          ENV_OSH_TEXT2SQL_ES_PASSWORD: ${{ secrets.OSH_TEXT2SQL_ES_PASSWORD }}
+          ENV_OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS: ${{ vars.OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS || '43.242.200.25:9092' }}
+          ENV_OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL: ${{ vars.OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL || 'PLAINTEXT' }}
+          ENV_OSH_TEXT2SQL_KAFKA_SASL_MECHANISM: ${{ vars.OSH_TEXT2SQL_KAFKA_SASL_MECHANISM || '' }}
+          ENV_OSH_TEXT2SQL_KAFKA_USERNAME: ${{ secrets.OSH_TEXT2SQL_KAFKA_USERNAME }}
+          ENV_OSH_TEXT2SQL_KAFKA_PASSWORD: ${{ secrets.OSH_TEXT2SQL_KAFKA_PASSWORD }}
+          ENV_OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM: ${{ vars.OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM || '43.242.200.25' }}
+          ENV_OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT: ${{ vars.OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT || '2181' }}
+          ENV_OSH_TEXT2SQL_HBASE_ZNODE_PARENT: ${{ vars.OSH_TEXT2SQL_HBASE_ZNODE_PARENT || '/hbase-2514' }}
+          ENV_OSH_TEXT2SQL_HBASE_NAMESPACE: ${{ vars.OSH_TEXT2SQL_HBASE_NAMESPACE || 'default' }}
         run: |
-          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "cat > '$DEPLOY_ROOT/shared/app.env' <<'EOF'
-          OSH_TEXT2SQL_SERVER_PORT=${{ vars.OSH_TEXT2SQL_SERVER_PORT || '19100' }}
-          OSH_TEXT2SQL_DASHSCOPE_ENABLED=${{ vars.OSH_TEXT2SQL_DASHSCOPE_ENABLED || 'true' }}
-          OSH_TEXT2SQL_DASHSCOPE_API_KEY=${{ secrets.OSH_TEXT2SQL_DASHSCOPE_API_KEY }}
-          OSH_TEXT2SQL_DASHSCOPE_MODEL=${{ vars.OSH_TEXT2SQL_DASHSCOPE_MODEL || 'qwen-plus' }}
-          OSH_TEXT2SQL_AI_PROVIDER=${{ vars.OSH_TEXT2SQL_AI_PROVIDER || 'aicodee' }}
-          OSH_TEXT2SQL_AI_REASONING_EFFORT=${{ vars.OSH_TEXT2SQL_AI_REASONING_EFFORT || 'medium' }}
-          OSH_TEXT2SQL_AICODEE_API_KEY=${{ secrets.OSH_TEXT2SQL_AICODEE_API_KEY }}
-          OSH_TEXT2SQL_AICODEE_BASE_URL=${{ vars.OSH_TEXT2SQL_AICODEE_BASE_URL || 'https://v2.aicodee.com' }}
-          OSH_TEXT2SQL_AICODEE_MODEL=${{ vars.OSH_TEXT2SQL_AICODEE_MODEL || 'MiniMax-M2.7-highspeed' }}
-          OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH=${{ vars.OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH || '/v1/chat/completions' }}
-          OSH_TEXT2SQL_MYSQL_HOST=${{ vars.OSH_TEXT2SQL_MYSQL_HOST || '43.242.200.25' }}
-          OSH_TEXT2SQL_MYSQL_PORT=${{ vars.OSH_TEXT2SQL_MYSQL_PORT || '3306' }}
-          OSH_TEXT2SQL_MYSQL_DATABASE=${{ vars.OSH_TEXT2SQL_MYSQL_DATABASE || 'backstage' }}
-          OSH_TEXT2SQL_MYSQL_USERNAME=${{ secrets.OSH_TEXT2SQL_MYSQL_USERNAME }}
-          OSH_TEXT2SQL_MYSQL_PASSWORD=${{ secrets.OSH_TEXT2SQL_MYSQL_PASSWORD }}
-          OSH_TEXT2SQL_REDIS_HOST=${{ vars.OSH_TEXT2SQL_REDIS_HOST || '127.0.0.1' }}
-          OSH_TEXT2SQL_REDIS_PORT=${{ vars.OSH_TEXT2SQL_REDIS_PORT || '6379' }}
-          OSH_TEXT2SQL_REDIS_DATABASE=${{ vars.OSH_TEXT2SQL_REDIS_DATABASE || '0' }}
-          OSH_TEXT2SQL_REDIS_PASSWORD=${{ secrets.OSH_TEXT2SQL_REDIS_PASSWORD }}
-          OSH_TEXT2SQL_ES_BASE_URL=${{ vars.OSH_TEXT2SQL_ES_BASE_URL || 'http://43.242.200.25:9200' }}
-          OSH_TEXT2SQL_ES_USERNAME=${{ secrets.OSH_TEXT2SQL_ES_USERNAME }}
-          OSH_TEXT2SQL_ES_PASSWORD=${{ secrets.OSH_TEXT2SQL_ES_PASSWORD }}
-          OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS=${{ vars.OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS || '43.242.200.25:9092' }}
-          OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL=${{ vars.OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL || 'PLAINTEXT' }}
-          OSH_TEXT2SQL_KAFKA_SASL_MECHANISM=${{ vars.OSH_TEXT2SQL_KAFKA_SASL_MECHANISM || '' }}
-          OSH_TEXT2SQL_KAFKA_USERNAME=${{ secrets.OSH_TEXT2SQL_KAFKA_USERNAME }}
-          OSH_TEXT2SQL_KAFKA_PASSWORD=${{ secrets.OSH_TEXT2SQL_KAFKA_PASSWORD }}
-          OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM=${{ vars.OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM || '43.242.200.25' }}
-          OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT=${{ vars.OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT || '2181' }}
-          OSH_TEXT2SQL_HBASE_ZNODE_PARENT=${{ vars.OSH_TEXT2SQL_HBASE_ZNODE_PARENT || '/hbase-2514' }}
-          OSH_TEXT2SQL_HBASE_NAMESPACE=${{ vars.OSH_TEXT2SQL_HBASE_NAMESPACE || 'default' }}
-          EOF
-          chmod 600 '$DEPLOY_ROOT/shared/app.env'"
+          python3 - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+
+          keys = [
+              "OSH_TEXT2SQL_DEPLOY_ROOT",
+              "OSH_TEXT2SQL_SERVER_PORT",
+              "OSH_TEXT2SQL_DASHSCOPE_ENABLED",
+              "OSH_TEXT2SQL_DASHSCOPE_API_KEY",
+              "OSH_TEXT2SQL_DASHSCOPE_MODEL",
+              "OSH_TEXT2SQL_AI_PROVIDER",
+              "OSH_TEXT2SQL_AI_REASONING_EFFORT",
+              "OSH_TEXT2SQL_AICODEE_API_KEY",
+              "OSH_TEXT2SQL_AICODEE_BASE_URL",
+              "OSH_TEXT2SQL_AICODEE_MODEL",
+              "OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH",
+              "OSH_TEXT2SQL_OPENAI_API_KEY",
+              "OSH_TEXT2SQL_OPENAI_BASE_URL",
+              "OSH_TEXT2SQL_OPENAI_MODEL",
+              "OSH_TEXT2SQL_OPENAI_COMPLETIONS_PATH",
+              "OSH_TEXT2SQL_MYSQL_HOST",
+              "OSH_TEXT2SQL_MYSQL_PORT",
+              "OSH_TEXT2SQL_MYSQL_DATABASE",
+              "OSH_TEXT2SQL_MYSQL_USERNAME",
+              "OSH_TEXT2SQL_MYSQL_PASSWORD",
+              "OSH_TEXT2SQL_REDIS_HOST",
+              "OSH_TEXT2SQL_REDIS_PORT",
+              "OSH_TEXT2SQL_REDIS_DATABASE",
+              "OSH_TEXT2SQL_REDIS_PASSWORD",
+              "OSH_TEXT2SQL_ES_BASE_URL",
+              "OSH_TEXT2SQL_ES_USERNAME",
+              "OSH_TEXT2SQL_ES_PASSWORD",
+              "OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS",
+              "OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL",
+              "OSH_TEXT2SQL_KAFKA_SASL_MECHANISM",
+              "OSH_TEXT2SQL_KAFKA_USERNAME",
+              "OSH_TEXT2SQL_KAFKA_PASSWORD",
+              "OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM",
+              "OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT",
+              "OSH_TEXT2SQL_HBASE_ZNODE_PARENT",
+              "OSH_TEXT2SQL_HBASE_NAMESPACE",
+          ]
+
+          values = {"OSH_TEXT2SQL_DEPLOY_ROOT": os.environ["DEPLOY_ROOT"]}
+          for key in keys:
+              values.setdefault(key, os.environ.get(f"ENV_{key}", ""))
+
+          body = "\n".join(f"{key}={shlex.quote(values[key])}" for key in keys)
+          Path("app.env").write_text(body + "\n", encoding="utf-8")
+          PY
+          test -s app.env
+
+      - name: Upload remote environment file
+        run: |
+          rsync -az \
+            -e "ssh -o ConnectTimeout=30 -p $DEPLOY_PORT" \
+            app.env \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_ROOT/shared/app.env"
+          ssh -o ConnectTimeout=30 -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "chmod 600 '$DEPLOY_ROOT/shared/app.env'"
 
       - name: Restart remote service
         run: |
