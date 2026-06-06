@@ -27,14 +27,14 @@ public class RedisKnowledgeImportService {
     public KnowledgeImportResponse importBackendRedisKnowledge() {
         Text2SqlProperties.QaKnowledgeImportProperties qaConfig = properties.getQaKnowledgeImport();
         String markdown = buildBackendRedisKnowledgeMarkdown();
-        String datePrefix = LocalDate.now().format(DATE_FORMATTER);
+        String dateSuffix = LocalDate.now().format(DATE_FORMATTER);
         return qaKnowledgeImportService.importMarkdownToKnowledgeLib(
             qaConfig.getBaseUrl(),
             qaConfig.getUsername(),
             qaConfig.getPassword(),
             qaConfig.getLibId(),
             "redis-knowledge",
-            datePrefix + "-backend-redis-knowledge.md",
+            "backend-redis-knowledge-" + dateSuffix + ".md",
             markdown
         );
     }

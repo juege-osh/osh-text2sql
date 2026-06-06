@@ -48,7 +48,7 @@ osh:
     ai:
       # openai|dashscope|aicodee
       provider: ${OSH_TEXT2SQL_AI_PROVIDER:aicodee}
-      explain-result: true
+      explain-result: false
       reasoning-effort: ${OSH_TEXT2SQL_AI_REASONING_EFFORT:medium}
       aicodee:
         api-key: ${OSH_TEXT2SQL_AICODEE_API_KEY:sk-d758a8ebc1aa79920b6a20d9fd14873a}
@@ -111,6 +111,17 @@ osh:
         port: ${AI_ASSISTANT_REDIS_PORT:16379}
         password: ${AI_ASSISTANT_REDIS_PASSWORD:juegetech_88888888}
         database: ${AI_ASSISTANT_REDIS_DATABASE:0}
+    mysql-table-selector:
+      # MySQL 自然语言选表模式：
+      # LOCAL：走当前服务本地选表逻辑，根据问题和库表结构直接筛选候选表
+      # QA_ASSISTANT：调用 QA assistant 对外 API 做选表，再将候选表交给 text2sql 继续生成 SQL
+      mode: ${OSH_TEXT2SQL_MYSQL_TABLE_SELECTOR_MODE:QA_ASSISTANT}
+      qa-assistant:
+        enabled: ${OSH_TEXT2SQL_MYSQL_QA_SELECTOR_ENABLED:true}
+        base-url: ${OSH_TEXT2SQL_MYSQL_QA_SELECTOR_BASE_URL:http://43.242.200.67}
+        app-id: ${OSH_TEXT2SQL_MYSQL_QA_SELECTOR_APP_ID:2063135247409639425}
+        app-key: ${OSH_TEXT2SQL_MYSQL_QA_SELECTOR_APP_KEY:fab3e3f2a1ae4a59a012c9b3de184c7f}
+        chat-id: ${OSH_TEXT2SQL_MYSQL_QA_SELECTOR_CHAT_ID:mysql-table-selector}
 
 logging:
   level:

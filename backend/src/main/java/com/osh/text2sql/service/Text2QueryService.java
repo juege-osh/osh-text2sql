@@ -46,6 +46,7 @@ public class Text2QueryService {
     private final Text2SqlProperties properties;
     private final MysqlIntrospector mysqlIntrospector;
     private final MysqlSchemaCacheService mysqlSchemaCacheService;
+    private final MysqlNaturalLanguageSchemaService mysqlNaturalLanguageSchemaService;
     private final RedisIntrospector redisIntrospector;
     private final ElasticsearchIntrospector elasticsearchIntrospector;
     private final KafkaIntrospector kafkaIntrospector;
@@ -61,6 +62,7 @@ public class Text2QueryService {
                              Text2SqlProperties properties,
                              MysqlIntrospector mysqlIntrospector,
                              MysqlSchemaCacheService mysqlSchemaCacheService,
+                             MysqlNaturalLanguageSchemaService mysqlNaturalLanguageSchemaService,
                              RedisIntrospector redisIntrospector,
                              ElasticsearchIntrospector elasticsearchIntrospector,
                              KafkaIntrospector kafkaIntrospector,
@@ -75,6 +77,7 @@ public class Text2QueryService {
         this.properties = properties;
         this.mysqlIntrospector = mysqlIntrospector;
         this.mysqlSchemaCacheService = mysqlSchemaCacheService;
+        this.mysqlNaturalLanguageSchemaService = mysqlNaturalLanguageSchemaService;
         this.redisIntrospector = redisIntrospector;
         this.elasticsearchIntrospector = elasticsearchIntrospector;
         this.kafkaIntrospector = kafkaIntrospector;
@@ -88,6 +91,7 @@ public class Text2QueryService {
 
     public QueryResponse query(QueryRequest request) {
         ConnectionProfile profile = profileResolver.resolve(request.getConnection(), request.getType());
+        logNaturalLanguageRoute(request, profile);
         DatasourceSchemaResponse schema = schemaForQuestion(request.getType(), profile, request.getQuestion());
         GeneratedQuery generatedQuery = request.getMode() == QueryMode.RAW
             ? GeneratedQuery.builder()
@@ -302,9 +306,24 @@ public class Text2QueryService {
 
     private DatasourceSchemaResponse schemaForQuestion(DatasourceType type, ConnectionProfile profile, String question) {
         if (type == DatasourceType.MYSQL) {
-            return mysqlIntrospector.introspect(profile, question);
+            return mysqlNaturalLanguageSchemaService.resolve(profile, question);
         }
         return introspector(type).introspect(profile);
+    }
+
+    private void logNaturalLanguageRoute(QueryRequest request, ConnectionProfile profile) {
+        if (request.getMode() == QueryMode.RAW) {
+            log.info("查询请求进入手动模式：type={}, question={}, rawQueryPresent={}",
+                request.getType(), request.getQuestion(), request.getRawQuery() != null && !request.getRawQuery().isBlank());
+            return;
+        }
+        if (request.getType() == DatasourceType.MYSQL) {
+            String route = mysqlNaturalLanguageSchemaService.currentRoute(request.getQuestion());
+            log.info("MySQL 自然语言路由判定完成：route={}, database={}, question={}",
+                route, profile.getDatabase(), request.getQuestion());
+            return;
+        }
+        log.info("自然语言查询走默认处理链路：type={}, question={}", request.getType(), request.getQuestion());
     }
 
     private QueryExecutor executor(DatasourceType type) {
