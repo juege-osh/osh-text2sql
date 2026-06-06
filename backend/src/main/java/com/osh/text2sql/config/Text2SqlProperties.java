@@ -19,6 +19,8 @@ public class Text2SqlProperties {
 
     private DatasourceProperties datasources = new DatasourceProperties();
 
+    private QaKnowledgeImportProperties qaKnowledgeImport = new QaKnowledgeImportProperties();
+
     @Data
     public static class AiProperties {
         private String provider = "aicodee";
@@ -40,7 +42,7 @@ public class Text2SqlProperties {
         private boolean enabled = true;
         @NotBlank
         private String host;
-        private int port = 3306;
+        private int port = 53306;
         @NotBlank
         private String database;
         @NotBlank
@@ -54,7 +56,7 @@ public class Text2SqlProperties {
         private boolean enabled = true;
         @NotBlank
         private String host;
-        private int port = 6379;
+        private int port = 56379;
         private String password;
         private int database;
     }
@@ -72,7 +74,7 @@ public class Text2SqlProperties {
     public static class KafkaProperties {
         private boolean enabled = true;
         @NotBlank
-        private String bootstrapServers;
+        private String bootstrapServers = "43.242.200.25:59092";
         private String securityProtocol = "PLAINTEXT";
         private String saslMechanism;
         private String username;
@@ -84,7 +86,7 @@ public class Text2SqlProperties {
         private boolean enabled = true;
         @NotBlank
         private String zookeeperQuorum;
-        private int zookeeperClientPort = 2181;
+        private int zookeeperClientPort = 52181;
         private String znodeParent = "/hbase";
         private String namespace = "default";
     }
@@ -94,5 +96,28 @@ public class Text2SqlProperties {
         private boolean enabled = true;
         private int ttlMinutes = 180;
         private String keyPrefix = "osh:text2sql:mysql:schema";
+    }
+
+    @Data
+    public static class QaKnowledgeImportProperties {
+        private boolean enabled = true;
+        @NotBlank
+        private String baseUrl = "http://43.242.200.67";
+        @NotBlank
+        private String username = "hope";
+        @NotBlank
+        private String password = "123456";
+        private Long libId = 2063135636288729089L;
+        private String module = "es-schema";
+        private QaRedisProperties redis = new QaRedisProperties();
+    }
+
+    @Data
+    public static class QaRedisProperties {
+        @NotBlank
+        private String host = "43.242.200.67";
+        private int port = 6379;
+        private String password = "juegetech_88888888";
+        private int database = 0;
     }
 }

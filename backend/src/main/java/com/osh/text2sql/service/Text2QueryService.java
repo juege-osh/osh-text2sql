@@ -166,7 +166,7 @@ public class Text2QueryService {
                     .title("HBase")
                     .subtitle("%s:%d / %s".formatted(hbase.getZookeeperQuorum(), hbase.getZookeeperClientPort(), hbase.getNamespace()))
                     .status("Ready")
-                    .sampleTarget("default:demo, default:user_profile")
+                    .sampleTarget("default:osh_user")
                     .build()
             ))
             .suggestions(java.util.List.of(
@@ -232,13 +232,23 @@ public class Text2QueryService {
                     .build(),
                 QuerySuggestion.builder()
                     .type(DatasourceType.HBASE)
-                    .title("按 rowKey 查询")
-                    .prompt("查询 user_profile 表中 rowKey 为 user:1001 的数据")
+                    .title("查看用户表结构")
+                    .prompt("查看 osh_user 表结构")
                     .build(),
                 QuerySuggestion.builder()
                     .type(DatasourceType.HBASE)
-                    .title("查看表前 10 行")
-                    .prompt("查看 user_profile 表前 10 行数据")
+                    .title("按 rowKey 查询用户")
+                    .prompt("查询 osh_user 表中 rowKey 为 user:23 的数据")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.HBASE)
+                    .title("查看用户表前 10 行")
+                    .prompt("查看 osh_user 表前 10 行数据")
+                    .build(),
+                QuerySuggestion.builder()
+                    .type(DatasourceType.HBASE)
+                    .title("统计 HBase 用户数")
+                    .prompt("统计 osh_user 表记录数量")
                     .build()
             ))
             .build();

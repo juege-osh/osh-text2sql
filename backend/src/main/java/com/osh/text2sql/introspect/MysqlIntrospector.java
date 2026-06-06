@@ -33,7 +33,7 @@ public class MysqlIntrospector implements DatasourceIntrospector {
 
     private static final Logger log = LoggerFactory.getLogger(MysqlIntrospector.class);
     private static final int MAX_TABLES = 30;
-    private static final int MAX_COLUMNS = 20;
+    private static final int MAX_COLUMNS = 12;
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int SOCKET_TIMEOUT_MS = 10000;
 
@@ -55,18 +55,26 @@ public class MysqlIntrospector implements DatasourceIntrospector {
 
     public DatasourceSchemaResponse introspect(ConnectionProfile profile, @Nullable String question) {
         long start = System.currentTimeMillis();
-        Optional<MysqlSchemaCachePayload> cachedPayload = cacheService.getSchema(profile)
-            .filter(this::hasTableMetadata);
         DatasourceSchemaResponse response;
-        if (cachedPayload.isPresent()) {
-            response = buildResponse(cachedPayload.get(), question);
-        } else if (question != null && !question.isBlank()) {
-            log.info("MySQL 结构缓存未命中，开始按当前问题从 MySQL 读取候选表结构：database={}", profile.getDatabase());
-            response = loadQuestionScopedSchema(profile, question);
+        if (question != null && !question.isBlank()) {
+            Optional<MysqlSchemaCachePayload> cachedColumnsPayload = cacheService.getSchemaColumnsOnly(profile)
+                .filter(this::hasTableMetadata);
+            if (cachedColumnsPayload.isPresent()) {
+                response = buildResponse(cachedColumnsPayload.get(), question, true, profile);
+            } else {
+                log.info("MySQL 结构缓存未命中，开始按当前问题从 MySQL 读取候选表结构：database={}", profile.getDatabase());
+                response = loadQuestionScopedSchema(profile, question);
+            }
         } else {
-            log.info("MySQL 结构缓存未命中，开始从 MySQL 读取全量结构：database={}", profile.getDatabase());
-            MysqlSchemaCachePayload payload = refreshCache(profile);
-            response = buildResponse(payload, question);
+            Optional<MysqlSchemaCachePayload> cachedPayload = cacheService.getSchema(profile)
+                .filter(this::hasTableMetadata);
+            if (cachedPayload.isPresent()) {
+                response = buildResponse(cachedPayload.get(), null, false, profile);
+            } else {
+                log.info("MySQL 结构缓存未命中，开始从 MySQL 读取全量结构：database={}", profile.getDatabase());
+                MysqlSchemaCachePayload payload = refreshCache(profile);
+                response = buildResponse(payload, null, false, profile);
+            }
         }
         log.info("MySQL 结构分析完成：database={}, questionPresent={}, elapsedMs={}",
             profile.getDatabase(), question != null && !question.isBlank(), System.currentTimeMillis() - start);
@@ -76,14 +84,14 @@ public class MysqlIntrospector implements DatasourceIntrospector {
     public DatasourceSchemaResponse refresh(ConnectionProfile profile, @Nullable String question) {
         long start = System.currentTimeMillis();
         MysqlSchemaCachePayload payload = refreshCache(profile);
-        DatasourceSchemaResponse response = buildResponse(payload, question);
+        DatasourceSchemaResponse response = buildResponse(payload, question, false, profile);
         log.info("MySQL 结构刷新完成：database={}, elapsedMs={}",
             profile.getDatabase(), System.currentTimeMillis() - start);
         return response;
     }
 
     protected DatasourceSchemaResponse loadSchema(ConnectionProfile profile, @Nullable String question) {
-        return buildResponse(loadCachePayload(profile), question);
+        return buildResponse(loadCachePayload(profile), question, false, profile);
     }
 
     public MysqlSchemaCachePayload loadCachePayload(ConnectionProfile profile) {
@@ -151,6 +159,32 @@ public class MysqlIntrospector implements DatasourceIntrospector {
             .build();
     }
 
+    public Map<String, List<Map<String, Object>>> loadTableColumnsBatch(ConnectionProfile profile,
+                                                                        List<MysqlSchemaCachePayload.TableMeta> tables) {
+        if (tables == null || tables.isEmpty()) {
+            return Map.of();
+        }
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(createDataSource(profile));
+        jdbcTemplate.setQueryTimeout(properties.getDefaultTimeoutSeconds());
+        List<String> tableNames = tables.stream()
+            .map(MysqlSchemaCachePayload.TableMeta::tableName)
+            .toList();
+        return queryColumnsByTables(jdbcTemplate, profile.getDatabase(), tableNames);
+    }
+
+    public Map<String, List<Map<String, Object>>> loadTableIndexesBatch(ConnectionProfile profile,
+                                                                        List<MysqlSchemaCachePayload.TableMeta> tables) {
+        if (tables == null || tables.isEmpty()) {
+            return Map.of();
+        }
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(createDataSource(profile));
+        jdbcTemplate.setQueryTimeout(properties.getDefaultTimeoutSeconds());
+        List<String> tableNames = tables.stream()
+            .map(MysqlSchemaCachePayload.TableMeta::tableName)
+            .toList();
+        return queryIndexesByTables(jdbcTemplate, profile.getDatabase(), tableNames);
+    }
+
     private DatasourceSchemaResponse loadQuestionScopedSchema(ConnectionProfile profile, String question) {
         long start = System.currentTimeMillis();
         JdbcTemplate jdbcTemplate = new JdbcTemplate(createDataSource(profile));
@@ -182,7 +216,10 @@ public class MysqlIntrospector implements DatasourceIntrospector {
         return response;
     }
 
-    private DatasourceSchemaResponse buildResponse(MysqlSchemaCachePayload payload, @Nullable String question) {
+    private DatasourceSchemaResponse buildResponse(MysqlSchemaCachePayload payload,
+                                                  @Nullable String question,
+                                                  boolean indexesDeferred,
+                                                  ConnectionProfile profile) {
         List<MysqlSchemaCachePayload.TableMeta> sourceTables = payload.tables().isEmpty() ? defaultTablesFromSchema(payload) : payload.tables();
         List<MysqlSchemaCachePayload.TableMeta> rankedTables;
         if (question == null || question.isBlank()) {
@@ -204,6 +241,13 @@ public class MysqlIntrospector implements DatasourceIntrospector {
             if (columns != null) {
                 schema.put(tableName, columns);
             }
+        }
+        if (indexesDeferred && !schema.isEmpty()) {
+            cacheService.attachIndexes(
+                profile,
+                schema,
+                rankedTables.stream().map(MysqlSchemaCachePayload.TableMeta::tableName).toList()
+            );
         }
         return DatasourceSchemaResponse.builder()
             .type(DatasourceType.MYSQL)
@@ -283,7 +327,7 @@ public class MysqlIntrospector implements DatasourceIntrospector {
 
         for (Map<String, Object> column : columns) {
             String columnName = String.valueOf(column.get("columnName")).toLowerCase(Locale.ROOT);
-            if ((priorityColumns.contains(columnName) || indexedColumns.contains(columnName)) && selected.size() < MAX_COLUMNS) {
+        if ((priorityColumns.contains(columnName) || indexedColumns.contains(columnName)) && selected.size() < MAX_COLUMNS) {
                 selected.add(column);
             }
         }
@@ -346,7 +390,7 @@ public class MysqlIntrospector implements DatasourceIntrospector {
     }
 
     private List<MysqlSchemaCachePayload.TableMeta> defaultTables(List<MysqlSchemaCachePayload.TableMeta> tables) {
-        return tables.stream().limit(MAX_TABLES).toList();
+        return tables.stream().limit(Math.min(8, MAX_TABLES)).toList();
     }
 
     private List<MysqlSchemaCachePayload.TableMeta> defaultTablesFromSchema(MysqlSchemaCachePayload payload) {

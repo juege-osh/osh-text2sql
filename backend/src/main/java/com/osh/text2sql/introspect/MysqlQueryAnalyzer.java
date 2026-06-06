@@ -140,21 +140,24 @@ public class MysqlQueryAnalyzer {
 
     private int determineCandidateLimit(SemanticProfile semanticProfile, int maxTables) {
         if (!semanticProfile.explicitTables().isEmpty()) {
-            return Math.min(4, maxTables);
+            return Math.min(3, maxTables);
         }
         if (semanticProfile.normalizedTerms().isEmpty()) {
-            return Math.min(12, maxTables);
+            return Math.min(8, maxTables);
         }
         if (semanticProfile.intent() == MysqlQueryIntent.COUNT) {
-            return Math.min(8, maxTables);
+            return Math.min(5, maxTables);
         }
         if (semanticProfile.intent() == MysqlQueryIntent.FILTER
             && semanticProfile.normalizedTerms().contains("user")
             && semanticProfile.normalizedTerms().contains("tool")
             && semanticProfile.normalizedTerms().contains("quota")) {
+            return Math.min(4, maxTables);
+        }
+        if (semanticProfile.intent() == MysqlQueryIntent.LIST_RECENT || semanticProfile.intent() == MysqlQueryIntent.TOP_N) {
             return Math.min(6, maxTables);
         }
-        return Math.min(12, maxTables);
+        return Math.min(8, maxTables);
     }
 
     private int scoreTable(SemanticProfile semanticProfile, StructuralProfile structuralProfile) {

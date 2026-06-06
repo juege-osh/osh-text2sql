@@ -153,6 +153,91 @@ public class MysqlSchemaCacheService {
         }
     }
 
+    public Optional<MysqlSchemaCachePayload> getSchemaColumnsOnly(ConnectionProfile profile) {
+        if (!enabled) {
+            return Optional.empty();
+        }
+        long start = System.currentTimeMillis();
+        try {
+            log.info("开始读取 MySQL 结构缓存（仅列摘要）：database={}, key={}", profile.getDatabase(), schemaMetaKey(profile));
+            String metaRaw = redis.get(schemaMetaKey(profile));
+            if (metaRaw == null || metaRaw.isBlank()) {
+                log.info("MySQL 结构缓存（仅列摘要）未命中：database={}", profile.getDatabase());
+                return Optional.empty();
+            }
+            SchemaMeta meta = JsonUtils.fromJson(metaRaw, SchemaMeta.class);
+            Optional<List<MysqlSchemaCachePayload.TableMeta>> tableList = getTableList(profile);
+            if (tableList.isEmpty()) {
+                return Optional.empty();
+            }
+            List<MysqlSchemaCachePayload.TableMeta> tables = tableList.get();
+            List<String> columnKeys = tables.stream()
+                .map(table -> tableColumnsKey(profile, table.tableName()))
+                .toList();
+            List<String> columnsRawList = redis.getMany(columnKeys);
+            Map<String, Object> schema = new LinkedHashMap<>();
+            for (int index = 0; index < tables.size(); index++) {
+                MysqlSchemaCachePayload.TableMeta table = tables.get(index);
+                String columnsRaw = index < columnsRawList.size() ? columnsRawList.get(index) : null;
+                if (columnsRaw == null || columnsRaw.isBlank()) {
+                    log.info("MySQL 结构缓存中的表字段未命中：database={}, table={}", profile.getDatabase(), table.tableName());
+                    return Optional.empty();
+                }
+                List<Map<String, Object>> columns = JsonUtils.fromJson(
+                    columnsRaw,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {
+                    }
+                );
+                schema.put(table.tableName(), Map.of(
+                    "columns", columns,
+                    "indexes", List.of()
+                ));
+            }
+            log.info("MySQL 结构缓存命中（仅列摘要）：database={}, tableCount={}, elapsedMs={}",
+                profile.getDatabase(), tables.size(), System.currentTimeMillis() - start);
+            return Optional.of(new MysqlSchemaCachePayload(meta.name(), meta.summary(), schema, tables));
+        } catch (Exception exception) {
+            log.warn("MySQL 结构缓存（仅列摘要）读取失败：database={}, message={}",
+                profile.getDatabase(), exception.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    public void attachIndexes(ConnectionProfile profile, Map<String, Object> schema, List<String> tableNames) {
+        if (!enabled || schema == null || schema.isEmpty() || tableNames == null || tableNames.isEmpty()) {
+            return;
+        }
+        try {
+            List<String> indexKeys = tableNames.stream()
+                .map(tableName -> tableIndexesKey(profile, tableName))
+                .toList();
+            List<String> indexesRawList = redis.getMany(indexKeys);
+            for (int index = 0; index < tableNames.size(); index++) {
+                String tableName = tableNames.get(index);
+                Object rawTableSchema = schema.get(tableName);
+                if (!(rawTableSchema instanceof Map<?, ?> map)) {
+                    continue;
+                }
+                String indexesRaw = index < indexesRawList.size() ? indexesRawList.get(index) : null;
+                List<Map<String, Object>> indexes = indexesRaw == null || indexesRaw.isBlank()
+                    ? List.of()
+                    : JsonUtils.fromJson(
+                        indexesRaw,
+                        new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {
+                        }
+                    );
+                Map<String, Object> updated = new LinkedHashMap<>();
+                Object columns = map.containsKey("columns") ? map.get("columns") : List.of();
+                updated.put("columns", columns);
+                updated.put("indexes", indexes);
+                schema.put(tableName, updated);
+            }
+        } catch (Exception exception) {
+            log.warn("MySQL 表索引缓存补充失败：database={}, tables={}, message={}",
+                profile.getDatabase(), tableNames, exception.getMessage());
+        }
+    }
+
     public void putSchema(ConnectionProfile profile, MysqlSchemaCachePayload payload) {
         if (!enabled) {
             return;
