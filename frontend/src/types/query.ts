@@ -1,4 +1,4 @@
-export type DatasourceType = 'MYSQL' | 'REDIS' | 'ELASTICSEARCH' | 'KAFKA'
+export type DatasourceType = 'MYSQL' | 'REDIS' | 'ELASTICSEARCH' | 'KAFKA' | 'HBASE'
 export type QueryMode = 'AUTO' | 'RAW'
 
 export interface ConnectionProfile {
@@ -12,6 +12,10 @@ export interface ConnectionProfile {
   bootstrapServers?: string
   securityProtocol?: string
   saslMechanism?: string
+  zookeeperQuorum?: string
+  zookeeperClientPort?: number
+  znodeParent?: string
+  namespace?: string
 }
 
 export interface QueryRequest {
@@ -85,4 +89,91 @@ export interface WorkspaceSnapshotResponse {
 export interface HealthResponse {
   name: string
   status: string
+}
+
+export interface MysqlTableListItem {
+  tableName: string
+  tableComment: string
+}
+
+export interface MysqlTableListResponse {
+  database: string
+  total: number
+  tables: MysqlTableListItem[]
+}
+
+export interface MysqlTableSchemaResponse {
+  database: string
+  tableName: string
+  tableComment: string
+  columns: Record<string, unknown>[]
+  indexes: Record<string, unknown>[]
+}
+
+export interface MysqlTableOperationRequest {
+  connection?: ConnectionProfile
+  tableName: string
+}
+
+export interface RedisKeyListItem {
+  key: string
+  type: string
+  ttl: number
+}
+
+export interface RedisKeyListResponse {
+  host: string
+  database: string
+  total: number
+  keys: RedisKeyListItem[]
+}
+
+export interface KafkaTopicListPartitionLeader {
+  partition: number
+  leader: string
+}
+
+export interface KafkaTopicListItem {
+  name: string
+  partitions: number
+  internal: boolean
+  replicationFactor: number
+  partitionLeaders: KafkaTopicListPartitionLeader[]
+}
+
+export interface KafkaTopicListResponse {
+  bootstrapServers: string
+  total: number
+  topics: KafkaTopicListItem[]
+}
+
+export interface EsIndexListItem {
+  index: string
+  docsCount: string
+  status: string
+}
+
+export interface EsIndexListResponse {
+  baseUrl: string
+  total: number
+  indices: EsIndexListItem[]
+}
+
+export interface HbaseTableListFamily {
+  family: string
+  maxVersions: number
+  compression: string
+}
+
+export interface HbaseTableListItem {
+  table: string
+  namespace: string
+  columnFamilies: HbaseTableListFamily[]
+}
+
+export interface HbaseTableListResponse {
+  zookeeperQuorum: string
+  namespace: string
+  total: number
+  tables: HbaseTableListItem[]
 }

@@ -4,6 +4,25 @@ server:
 spring:
   application:
     name: osh-text2sql-backend
+  redis:
+    host: 43.242.200.25
+    port: 56379
+    database: 0
+    password: ${secret.redis.password:juegetech_88888888}
+    timeout: 10s
+    lettuce:
+      pool:
+        min-idle: 0
+        max-idle: 8
+        max-active: 8
+        max-wait: -1ms
+
+  # openai 配置
+  openai:
+    api-key: ${OSH_TEXT2SQL_OPENAI_API_KEY:}
+    base-url: ${OSH_TEXT2SQL_OPENAI_BASE_URL:https://ai.yaoyanryan.dpdns.org}
+    model: ${OSH_TEXT2SQL_OPENAI_MODEL:gpt-5.4}
+    completions-path: ${OSH_TEXT2SQL_OPENAI_COMPLETIONS_PATH:/v1/chat/completions}
   ai:
     chat:
       client:
@@ -27,33 +46,71 @@ osh:
     query-limit: 100
     default-timeout-seconds: 20
     ai:
+      # openai|dashscope|aicodee
+      provider: ${OSH_TEXT2SQL_AI_PROVIDER:aicodee}
       explain-result: true
+      reasoning-effort: ${OSH_TEXT2SQL_AI_REASONING_EFFORT:medium}
+      aicodee:
+        api-key: ${OSH_TEXT2SQL_AICODEE_API_KEY:sk-d758a8ebc1aa79920b6a20d9fd14873a}
+        base-url: ${OSH_TEXT2SQL_AICODEE_BASE_URL:https://v2.aicodee.com}
+        model: ${OSH_TEXT2SQL_AICODEE_MODEL:MiniMax-M2.7-highspeed}
+        completions-path: ${OSH_TEXT2SQL_AICODEE_COMPLETIONS_PATH:/v1/chat/completions}
     datasources:
       mysql:
         enabled: true
-        host: ${OSH_TEXT2SQL_MYSQL_HOST:127.0.0.1}
-        port: ${OSH_TEXT2SQL_MYSQL_PORT:3306}
+        host: ${OSH_TEXT2SQL_MYSQL_HOST:43.242.200.25}
+        port: ${OSH_TEXT2SQL_MYSQL_PORT:53306}
         database: ${OSH_TEXT2SQL_MYSQL_DATABASE:backstage}
-        username: ${OSH_TEXT2SQL_MYSQL_USERNAME:}
-        password: ${OSH_TEXT2SQL_MYSQL_PASSWORD:}
+        username: ${OSH_TEXT2SQL_MYSQL_USERNAME:root}
+        password: ${OSH_TEXT2SQL_MYSQL_PASSWORD:321qwerty}
       redis:
         enabled: true
-        host: ${OSH_TEXT2SQL_REDIS_HOST:127.0.0.1}
-        port: ${OSH_TEXT2SQL_REDIS_PORT:6379}
-        password: ${OSH_TEXT2SQL_REDIS_PASSWORD:}
+        host: ${OSH_TEXT2SQL_REDIS_HOST:43.242.200.25}
+        port: ${OSH_TEXT2SQL_REDIS_PORT:56379}
+        password: ${OSH_TEXT2SQL_REDIS_PASSWORD:juegetech_88888888}
         database: ${OSH_TEXT2SQL_REDIS_DATABASE:0}
+        list-cache:
+          enabled: true
+          ttl-minutes: 30
+          key-prefix: osh:text2sql:redis:list
       elasticsearch:
         enabled: true
-        base-url: ${OSH_TEXT2SQL_ES_BASE_URL:http://127.0.0.1:9200}
-        username: ${OSH_TEXT2SQL_ES_USERNAME:}
-        password: ${OSH_TEXT2SQL_ES_PASSWORD:}
+        base-url: ${OSH_TEXT2SQL_ES_BASE_URL:http://43.242.200.25:59200}
+        username: ${OSH_TEXT2SQL_ES_USERNAME:elastic}
+        password: ${OSH_TEXT2SQL_ES_PASSWORD:osh88888888}
+        list-cache:
+          enabled: true
+          ttl-minutes: 30
+          key-prefix: osh:text2sql:es:list
       kafka:
         enabled: true
-        bootstrap-servers: ${OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS:43.242.200.25:9092}
+        bootstrap-servers: ${OSH_TEXT2SQL_KAFKA_BOOTSTRAP_SERVERS:43.242.200.25:59092}
         security-protocol: ${OSH_TEXT2SQL_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
         sasl-mechanism: ${OSH_TEXT2SQL_KAFKA_SASL_MECHANISM:}
         username: ${OSH_TEXT2SQL_KAFKA_USERNAME:}
         password: ${OSH_TEXT2SQL_KAFKA_PASSWORD:}
+        list-cache:
+          enabled: true
+          ttl-minutes: 30
+          key-prefix: osh:text2sql:kafka:list
+      hbase:
+        enabled: true
+        zookeeper-quorum: ${OSH_TEXT2SQL_HBASE_ZOOKEEPER_QUORUM:43.242.200.25}
+        zookeeper-client-port: ${OSH_TEXT2SQL_HBASE_ZOOKEEPER_CLIENT_PORT:52181}
+        znode-parent: ${OSH_TEXT2SQL_HBASE_ZNODE_PARENT:/hbase-2514}
+        namespace: ${OSH_TEXT2SQL_HBASE_NAMESPACE:default}
+    qa-knowledge-import:
+      enabled: true
+      base-url: ${OSH_TEXT2SQL_QA_BASE_URL:http://43.242.200.67}
+      username: ${OSH_TEXT2SQL_QA_USERNAME:hope}
+      password: ${OSH_TEXT2SQL_QA_PASSWORD:123456}
+      lib-id: ${OSH_TEXT2SQL_QA_LIB_ID:2063135636288729089}
+      module: ${OSH_TEXT2SQL_QA_MODULE:es-schema}
+      redis:
+        host: ${AI_ASSISTANT_REDIS_HOST:43.242.200.67}
+        port: ${AI_ASSISTANT_REDIS_PORT:16379}
+        password: ${AI_ASSISTANT_REDIS_PASSWORD:juegetech_88888888}
+        database: ${AI_ASSISTANT_REDIS_DATABASE:0}
 
 logging:
   level:

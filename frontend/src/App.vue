@@ -5,13 +5,13 @@
     <header class="hero">
       <div class="hero-copy">
         <span class="hero-badge">OSH RAG · Text2SQL Studio</span>
-        <h1>一句自然语言，直接查询 MySQL、Redis、Elasticsearch、Kafka</h1>
+        <h1>一句自然语言，直接查询 MySQL、Redis、Elasticsearch、Kafka、HBase</h1>
         <p>
           直接复用服务端默认连接，自动读取结构，生成只读查询，并把结果翻译成清晰中文结论。
         </p>
       </div>
       <div class="hero-metrics">
-        <MetricCard label="默认数据源" value="4" sub="MySQL / Redis / ES / Kafka" />
+        <MetricCard label="默认数据源" value="5" sub="MySQL / Redis / ES / Kafka / HBase" />
         <MetricCard label="执行模式" value="2" sub="自动生成 / 手动执行" />
         <MetricCard label="结果表达" value="AI" sub="查询 + 中文总结" />
       </div>
@@ -39,7 +39,7 @@
         <div class="panel-header">
           <div>
             <h2>查询工作台</h2>
-            <p>连接项留空时直接走服务端默认配置，也可以临时覆盖后再查询。</p>
+            <p>当前页面统一使用服务端默认连接配置，前端不再提供手动输入连接参数。</p>
           </div>
           <el-tag effect="dark" :type="backendHealthy ? 'success' : 'danger'">
             {{ backendHealthy ? '服务可用' : '等待后端' }}
@@ -51,8 +51,8 @@
             v-for="item in snapshot.datasources"
             :key="item.type"
             class="datasource-chip"
-            :class="{ active: form.type === item.type }"
-            @click="switchDatasource(item.type)"
+            :class="{ active: form.type === item.type, disabled: datasourceSwitching }"
+            @click="handleDatasourceChipClick(item.type)"
           >
             <div class="chip-head">
               <strong>{{ item.title }}</strong>
@@ -69,14 +69,12 @@
               <el-segmented
                 v-model="form.type"
                 :options="typeOptions"
+                :disabled="datasourceSwitching"
                 @change="handleDatasourceSegmentChange"
               />
-            </el-form-item>
-            <el-form-item label="执行模式">
-              <el-radio-group v-model="form.mode">
-                <el-radio-button label="AUTO">自动生成</el-radio-button>
-                <el-radio-button label="RAW">手动执行</el-radio-button>
-              </el-radio-group>
+              <div v-if="datasourceSwitching" class="datasource-switching-tip">
+                正在切换数据源并加载内容...
+              </div>
             </el-form-item>
           </el-form>
 
@@ -94,62 +92,13 @@
           </div>
         </div>
 
-        <div class="connection-grid">
-          <template v-if="form.type === 'MYSQL' || form.type === 'REDIS'">
-            <el-input v-model="connection.host" placeholder="主机，留空走服务端默认" />
-            <el-input-number v-model="connection.port" :min="1" :max="65535" controls-position="right" />
-            <el-input
-              v-model="connection.username"
-              :placeholder="form.type === 'MYSQL' ? '用户名，留空走服务端默认' : 'Redis 通常无需用户名'"
-            />
-            <el-input v-model="connection.password" show-password placeholder="密码，留空走服务端默认" />
-            <el-input
-              v-model="connection.database"
-              :placeholder="form.type === 'MYSQL' ? '数据库名，留空走服务端默认' : 'Redis DB 编号，留空走服务端默认'"
-            />
-          </template>
-
-          <template v-else-if="form.type === 'ELASTICSEARCH'">
-            <el-input v-model="connection.baseUrl" placeholder="ES 地址，留空走服务端默认" />
-            <el-input v-model="connection.username" placeholder="用户名，留空走服务端默认" />
-            <el-input v-model="connection.password" show-password placeholder="密码，留空走服务端默认" />
-          </template>
-
-          <template v-else>
-            <el-input v-model="connection.bootstrapServers" placeholder="bootstrap servers，留空走服务端默认" />
-            <el-select v-model="connection.securityProtocol" placeholder="安全协议，留空走服务端默认">
-              <el-option
-                v-for="item in kafkaSecurityProtocols"
-                :key="item"
-                :label="item"
-                :value="item"
-              />
-            </el-select>
-            <el-select v-model="connection.saslMechanism" placeholder="SASL 机制，按需填写">
-              <el-option
-                v-for="item in kafkaMechanisms"
-                :key="item"
-                :label="item"
-                :value="item"
-              />
-            </el-select>
-            <el-input v-model="connection.username" placeholder="用户名，SASL 场景按需填写" />
-            <el-input v-model="connection.password" show-password placeholder="密码，SASL 场景按需填写" />
-          </template>
-        </div>
-
-        <div class="muted">
-          当前页面不会保存任何默认库密码。连接信息留空时，后端会自动回落到服务器上的安全环境变量。
-        </div>
-
         <div class="toolbar">
           <el-button class="ghost-button" :loading="testing" @click="handleTestConnection">测试连接</el-button>
-          <el-button class="ghost-button" :loading="schemaLoading" @click="handleLoadSchema">刷新结构</el-button>
           <span v-if="testMessage" class="test-message">{{ testMessage }}</span>
         </div>
 
         <el-form label-position="top">
-          <el-form-item label="自然语言问题">
+          <el-form-item label="查询框">
             <el-input
               v-model="form.question"
               type="textarea"
@@ -171,7 +120,113 @@
           <el-button type="primary" size="large" :loading="loading" @click="handleQuery">
             开始查询
           </el-button>
+          <el-tooltip
+            effect="dark"
+            placement="top"
+            :content="form.mode === 'AUTO' ? executionModeTips.AUTO : executionModeTips.RAW"
+          >
+            <el-radio-group v-model="form.mode">
+              <el-radio-button label="AUTO">自动生成</el-radio-button>
+              <el-radio-button label="RAW">手动执行</el-radio-button>
+            </el-radio-group>
+          </el-tooltip>
           <el-button size="large" @click="handleReset">重置</el-button>
+        </div>
+
+        <div class="module-browser-stack">
+          <div v-if="form.type === 'MYSQL'" class="module-browser-card">
+            <div class="module-browser-head">
+              <h3>MySQL 表结构列表</h3>
+              <p>当前展示结构摘要里已加载的表，以及每张表的关键字段。</p>
+            </div>
+            <div class="toolbar">
+              <el-input
+                v-model="mysqlTableKeyword"
+                clearable
+                placeholder="搜索表名或表注释"
+                class="module-search-input"
+              />
+              <el-button
+                class="ghost-button"
+                :loading="moduleRefreshing"
+                @click="handleRefreshModuleBrowser"
+              >
+                实时刷新
+              </el-button>
+            </div>
+            <el-table :data="filteredMysqlTableList" stripe border height="360" empty-text="当前没有可展示的 MySQL 表">
+              <el-table-column label="Table" min-width="420" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <div class="mysql-table-cell">
+                    <div class="mysql-table-name">{{ row.tableName }}</div>
+                    <div class="mysql-table-comment">{{ row.tableComment || '暂无表备注' }}</div>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column fixed="right" label="Action" width="250">
+                <template #default="{ row }">
+                  <div class="row-actions">
+                    <el-button
+                      size="small"
+                      :loading="mysqlTableActionLoading === `preview:${row.tableName}`"
+                      @click="handlePreviewMysqlTable(row.tableName)"
+                    >
+                      查前20条
+                    </el-button>
+                    <el-button
+                      size="small"
+                      :loading="mysqlTableActionLoading === `schema:${row.tableName}`"
+                      @click="handleViewMysqlTableSchema(row.tableName)"
+                    >
+                      看字段/索引
+                    </el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div v-if="activeMysqlTablePreview" class="mysql-detail-block">
+              <div class="module-browser-head">
+                <h3>表前 20 条数据</h3>
+                <p>{{ activeMysqlTablePreview.summary }}</p>
+              </div>
+              <el-table :data="activeMysqlTablePreview.rows" stripe border height="280">
+                <el-table-column
+                  v-for="column in activeMysqlTablePreview.columns"
+                  :key="column"
+                  :prop="column"
+                  :label="column"
+                  min-width="140"
+                  show-overflow-tooltip
+                />
+              </el-table>
+            </div>
+          </div>
+
+          <RedisKeyBrowser
+            v-if="form.type === 'REDIS'"
+            :data="redisKeyList"
+            :loading="moduleRefreshing"
+            @refresh="handleRefreshModuleBrowser"
+          />
+          <KafkaTopicBrowser
+            v-if="form.type === 'KAFKA'"
+            :data="kafkaTopicList"
+            :loading="moduleRefreshing"
+            @refresh="handleRefreshModuleBrowser"
+          />
+          <EsIndexBrowser
+            v-if="form.type === 'ELASTICSEARCH'"
+            :loading="moduleRefreshing"
+            :data="esIndexList"
+            @refresh="handleRefreshModuleBrowser"
+          />
+          <HbaseTableBrowser
+            v-if="form.type === 'HBASE'"
+            :data="hbaseTableList"
+            :loading="moduleRefreshing"
+            @refresh="handleRefreshModuleBrowser"
+          />
         </div>
 
         <div v-if="history.length" class="history-card">
@@ -340,7 +395,7 @@
             </div>
           </div>
 
-          <div v-else class="schema-grid kafka-grid">
+          <div v-else-if="activeSchema.type === 'KAFKA'" class="schema-grid kafka-grid">
             <div
               v-for="item in kafkaTopics"
               :key="item.name"
@@ -366,6 +421,31 @@
               当前 Kafka 预览没有取到 topic，可先测试连接或查看 topic 列表。
             </div>
           </div>
+
+          <div v-else class="schema-grid hbase-grid">
+            <div
+              v-for="item in hbaseTables"
+              :key="item.name"
+              class="schema-card"
+            >
+              <div class="schema-card-head">
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.namespace }}</span>
+              </div>
+              <div class="field-cloud">
+                <span
+                  v-for="family in item.columnFamilies"
+                  :key="`${item.name}-${family.family}`"
+                  class="field-chip"
+                >
+                  {{ family.family }} · v{{ family.maxVersions }}
+                </span>
+              </div>
+            </div>
+            <div v-if="!hbaseTables.length" class="schema-card schema-empty-card">
+              当前 HBase 预览没有取到表，可先测试连接或查看表列表。
+            </div>
+          </div>
         </div>
 
         <div v-if="result" class="code-card raw-response-card">
@@ -374,6 +454,67 @@
         </div>
       </section>
     </main>
+
+    <el-dialog
+      v-model="mysqlSchemaDialogVisible"
+      width="min(1100px, calc(100vw - 32px))"
+      class="mysql-schema-dialog"
+      destroy-on-close
+      align-center
+    >
+      <template #header>
+        <div class="mysql-schema-dialog__header" v-if="activeMysqlTableSchema">
+          <div>
+            <div class="mysql-schema-dialog__eyebrow">MySQL Structure Explorer</div>
+            <h3>{{ activeMysqlTableSchema.tableName }}</h3>
+            <p>{{ activeMysqlTableSchema.tableComment || '暂无表注释' }}</p>
+          </div>
+          <div class="mysql-schema-dialog__stats">
+            <div class="mysql-schema-stat">
+              <strong>{{ activeMysqlTableSchema.columns.length }}</strong>
+              <span>字段</span>
+            </div>
+            <div class="mysql-schema-stat">
+              <strong>{{ activeMysqlTableSchema.indexes.length }}</strong>
+              <span>索引项</span>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="activeMysqlTableSchema" class="mysql-schema-dialog__body">
+        <section class="mysql-schema-panel">
+          <div class="mysql-schema-panel__head">
+            <div>
+              <h4>字段列表</h4>
+              <p>按字段名、类型和注释快速浏览表结构。</p>
+            </div>
+            <el-tag effect="plain" type="success">Columns</el-tag>
+          </div>
+          <el-table :data="activeMysqlTableSchema.columns" stripe border height="320">
+            <el-table-column prop="columnName" label="Column" min-width="180" />
+            <el-table-column prop="dataType" label="Type" min-width="120" />
+            <el-table-column prop="columnComment" label="Comment" min-width="260" show-overflow-tooltip />
+          </el-table>
+        </section>
+
+        <section class="mysql-schema-panel">
+          <div class="mysql-schema-panel__head">
+            <div>
+              <h4>索引列表</h4>
+              <p>查看索引名、命中字段、顺序和类型。</p>
+            </div>
+            <el-tag effect="plain" type="warning">Indexes</el-tag>
+          </div>
+          <el-table :data="activeMysqlTableSchema.indexes" stripe border height="280">
+            <el-table-column prop="indexName" label="Index" min-width="160" />
+            <el-table-column prop="columnName" label="Column" min-width="160" />
+            <el-table-column prop="seqInIndex" label="Seq" min-width="90" />
+            <el-table-column prop="indexType" label="Type" min-width="120" />
+          </el-table>
+        </section>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -382,12 +523,32 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import MetricCard from '@/components/MetricCard.vue'
-import { fetchHealth, fetchSchemaByConnection, fetchSnapshot, queryData, testConnection } from '@/api/query'
+import EsIndexBrowser from '@/components/EsIndexBrowser.vue'
+import HbaseTableBrowser from '@/components/HbaseTableBrowser.vue'
+import KafkaTopicBrowser from '@/components/KafkaTopicBrowser.vue'
+import RedisKeyBrowser from '@/components/RedisKeyBrowser.vue'
+import {
+  fetchHealth,
+  fetchMysqlTablePreview,
+  fetchMysqlTableSchema,
+  fetchMysqlTables,
+  fetchSchemaByConnection,
+  fetchSnapshot,
+  queryData,
+  refreshMysqlTables,
+  testConnection
+} from '@/api/query'
 import type {
   ConnectionProfile,
   DatasourceType,
+  EsIndexListResponse,
+  HbaseTableListResponse,
+  KafkaTopicListResponse,
+  MysqlTableListResponse,
+  MysqlTableSchemaResponse,
   QueryMode,
   QueryResponse,
+  RedisKeyListResponse,
   SchemaResponse,
   WorkspaceSnapshotResponse
 } from '@/types/query'
@@ -429,11 +590,24 @@ interface KafkaTopicView {
   partitionLeaders: KafkaPartitionLeaderView[]
 }
 
+interface HbaseColumnFamilyView {
+  family: string
+  maxVersions: number
+  compression: string
+}
+
+interface HbaseTableView {
+  name: string
+  namespace: string
+  columnFamilies: HbaseColumnFamilyView[]
+}
+
 const typeOptions = [
   { label: 'MySQL', value: 'MYSQL' },
   { label: 'Redis', value: 'REDIS' },
   { label: 'Elasticsearch', value: 'ELASTICSEARCH' },
-  { label: 'Kafka', value: 'KAFKA' }
+  { label: 'Kafka', value: 'KAFKA' },
+  { label: 'HBase', value: 'HBASE' }
 ] as const
 
 const kafkaSecurityProtocols = ['PLAINTEXT', 'SASL_PLAINTEXT', 'SSL', 'SASL_SSL']
@@ -443,22 +617,39 @@ const examples: Record<DatasourceType, string[]> = {
   MYSQL: [
     '查询 assistant_feedback 表最近创建的 5 条反馈工单',
     '统计总共有多少个用户',
-    '列出 osh_book 表价格最高的 5 本电子书'
+    '列出 osh_book 表价格最高的 5 本电子书',
+    '查询可用工具的数量',
+    '查询 osh_course 表最近上架的 10 个课程',
+    '统计 osh_bbs_post 表总共有多少条帖子'
   ],
   REDIS: [
     '列出当前 Redis 数据库前 20 个 key',
     '查看某个 key 的类型和 TTL',
-    '查询一个列表 key 的前 10 条内容'
+    '查询一个列表 key 的前 10 条内容',
+    '查看 key user:1001:profile 的类型和 TTL',
+    '扫描包含 tool 的 Redis key'
   ],
   ELASTICSEARCH: [
     '查询 osh_course_index 中销量最高的 5 个课程',
     '搜索标题包含 测试课程 的课程文档',
-    '统计 osh_book_search_read 中最热门的电子书'
+    '统计 osh_book_search_read 中最热门的电子书',
+    '查询 osh_tool_search 中标题包含 AI 的工具',
+    '查看 osh_course_index 最近热门的课程'
   ],
   KAFKA: [
     '列出当前 Kafka 集群的 topic 列表',
     '查看 user-action topic 最近 10 条消息',
-    '查看 osh.tool.index topic 的分区详情'
+    '查看 osh.tool.index topic 的分区详情',
+    '查询 topic osh-kafka-key-status-test 对 consumer group osh-kafka-key-status-group 中 key 为 tool-1001 的消息消费情况',
+    '查看 pay-success-topic 最近 5 条消息'
+  ],
+  HBASE: [
+    '列出当前 HBase 命名空间下的表',
+    '查看 osh_user 表结构',
+    '查询 osh_user 表中 rowKey 为 user:23 的数据',
+    '查看 osh_user 表前 10 行数据',
+    '统计 osh_user 表记录数量',
+    '查询 osh_user 表中 status 为 0 的用户信息'
   ]
 }
 
@@ -486,12 +677,17 @@ const connection = reactive<ConnectionProfile>({
   baseUrl: '',
   bootstrapServers: '',
   securityProtocol: '',
-  saslMechanism: ''
+  saslMechanism: '',
+  zookeeperQuorum: '',
+  zookeeperClientPort: undefined,
+  znodeParent: '',
+  namespace: ''
 })
 
 const loading = ref(false)
 const testing = ref(false)
 const schemaLoading = ref(false)
+const datasourceSwitching = ref(false)
 const testMessage = ref('')
 const result = ref<QueryResponse | null>(null)
 const snapshot = ref<WorkspaceSnapshotResponse | null>(null)
@@ -499,6 +695,39 @@ const schemaPreview = ref<SchemaResponse | null>(null)
 const backendHealthy = ref(false)
 const backendStatusMessage = ref('等待检查')
 const history = ref<Array<{ id: string; type: DatasourceType; question: string; payload: QueryResponse }>>([])
+const mysqlTableList = ref<MysqlTableListResponse>({
+  database: '',
+  total: 0,
+  tables: []
+})
+const activeMysqlTableSchema = ref<MysqlTableSchemaResponse | null>(null)
+const mysqlSchemaDialogVisible = ref(false)
+const activeMysqlTablePreview = ref<QueryResponse['result'] | null>(null)
+const mysqlTableActionLoading = ref('')
+const mysqlTableKeyword = ref('')
+const moduleRefreshing = ref(false)
+const redisKeyList = ref<RedisKeyListResponse>({
+  host: '',
+  database: '0',
+  total: 0,
+  keys: []
+})
+const kafkaTopicList = ref<KafkaTopicListResponse>({
+  bootstrapServers: '',
+  total: 0,
+  topics: []
+})
+const esIndexList = ref<EsIndexListResponse>({
+  baseUrl: '',
+  total: 0,
+  indices: []
+})
+const hbaseTableList = ref<HbaseTableListResponse>({
+  zookeeperQuorum: '',
+  namespace: 'default',
+  total: 0,
+  tables: []
+})
 
 let healthTimer: number | undefined
 
@@ -509,7 +738,8 @@ const rawLabel = computed(() => {
   if (form.type === 'MYSQL') return '手动 SQL'
   if (form.type === 'REDIS') return '手动 Redis 命令'
   if (form.type === 'ELASTICSEARCH') return '手动 Elasticsearch DSL'
-  return '手动 Kafka Query DSL'
+  if (form.type === 'KAFKA') return '手动 Kafka Query DSL'
+  return '手动 HBase Query DSL'
 })
 const rawPlaceholder = computed(() => {
   if (form.type === 'MYSQL') {
@@ -521,7 +751,10 @@ const rawPlaceholder = computed(() => {
   if (form.type === 'ELASTICSEARCH') {
     return `{\n  "_index": "osh_course_index",\n  "size": 5,\n  "query": { "match_all": {} }\n}`
   }
-  return `{\n  "operation": "READ_MESSAGES",\n  "topic": "user-action",\n  "limit": 10,\n  "from": "LATEST"\n}`
+  if (form.type === 'KAFKA') {
+    return `{\n  "operation": "READ_MESSAGES",\n  "topic": "user-action",\n  "limit": 10,\n  "from": "LATEST"\n}`
+  }
+  return `{\n  "operation": "SCAN_ROWS",\n  "namespace": "default",\n  "table": "user_profile",\n  "limit": 10\n}`
 })
 const connectionSummary = computed(() => {
   if (form.type === 'ELASTICSEARCH') {
@@ -529,6 +762,12 @@ const connectionSummary = computed(() => {
   }
   if (form.type === 'KAFKA') {
     return connection.bootstrapServers || currentDatasource.value?.subtitle || '留空时使用服务端默认 Kafka 连接'
+  }
+  if (form.type === 'HBASE') {
+    if (connection.zookeeperQuorum || connection.zookeeperClientPort || connection.namespace) {
+      return `${connection.zookeeperQuorum || '未设置 quorum'}:${connection.zookeeperClientPort || '-'} / ${connection.namespace || '-'}`
+    }
+    return currentDatasource.value?.subtitle || '留空时使用服务端默认 HBase 连接'
   }
   if (connection.host || connection.port || connection.database) {
     return `${connection.host || '未设置主机'}:${connection.port || '-'} / ${connection.database || '-'}`
@@ -543,6 +782,15 @@ const mysqlTables = computed<MysqlTableView[]>(() => {
     name,
     columns: Array.isArray(raw) ? raw.map((item) => normalizeMysqlColumn(item)) : []
   }))
+})
+
+const filteredMysqlTableList = computed(() => {
+  const search = normalizeFuzzyText(mysqlTableKeyword.value)
+  if (!search) return mysqlTableList.value.tables
+  return mysqlTableList.value.tables.filter((item) =>
+    fuzzyMatch(item.tableName, search)
+    || fuzzyMatch(item.tableComment || '', search)
+  )
 })
 
 const redisKeys = computed<RedisKeyView[]>(() => {
@@ -593,9 +841,32 @@ const kafkaTopics = computed<KafkaTopicView[]>(() => {
   })
 })
 
+const hbaseTables = computed<HbaseTableView[]>(() => {
+  if (activeSchema.value?.type !== 'HBASE') return []
+  return Object.entries(asObject(activeSchema.value.schema)).map(([name, raw]) => {
+    const record = asObject(raw)
+    const families = Array.isArray(record.columnFamilies)
+      ? record.columnFamilies.map((item) => {
+          const family = asObject(item)
+          return {
+            family: String(family.family ?? ''),
+            maxVersions: Number(family.maxVersions ?? 1),
+            compression: String(family.compression ?? 'NONE')
+          }
+        })
+      : []
+    return {
+      name,
+      namespace: String(record.namespace ?? 'default'),
+      columnFamilies: families
+    }
+  })
+})
+
 onMounted(() => {
   void loadSnapshot()
   void checkBackendHealth()
+  void loadModuleDataForCurrentType()
   healthTimer = window.setInterval(() => {
     void checkBackendHealth()
   }, 15000)
@@ -608,10 +879,18 @@ onUnmounted(() => {
 })
 
 function handleDatasourceSegmentChange(value: string | number | boolean) {
-  switchDatasource(value as DatasourceType)
+  void switchDatasource(value as DatasourceType)
 }
 
-function switchDatasource(type: DatasourceType, question?: string) {
+function handleDatasourceChipClick(type: DatasourceType) {
+  if (datasourceSwitching.value) return
+  void switchDatasource(type)
+}
+
+async function switchDatasource(type: DatasourceType, question?: string) {
+  if (datasourceSwitching.value) return
+  datasourceSwitching.value = true
+  moduleRefreshing.value = true
   form.type = type
   resetConnection(type)
   form.question = question ?? examples[type][0]
@@ -619,7 +898,21 @@ function switchDatasource(type: DatasourceType, question?: string) {
   result.value = null
   schemaPreview.value = null
   testMessage.value = ''
+  activeMysqlTableSchema.value = null
+  mysqlSchemaDialogVisible.value = false
+  activeMysqlTablePreview.value = null
+  try {
+    await loadModuleDataForCurrentType()
+  } finally {
+    moduleRefreshing.value = false
+    datasourceSwitching.value = false
+  }
 }
+
+const executionModeTips = {
+  AUTO: '自动生成：让 AI 基于结构摘要自动生成只读查询，适合自然语言直接提问。',
+  RAW: '手动执行：直接输入 SQL / DSL / 命令，适合你已经知道准确查询语句时使用。'
+} as const
 
 async function handleRefreshHealth() {
   await checkBackendHealth(true)
@@ -669,6 +962,7 @@ async function handleQuery() {
     })
     result.value = data
     schemaPreview.value = data.schema
+    syncModulePreview(data.schema)
     history.value = [
       {
         id: `${Date.now()}`,
@@ -691,11 +985,28 @@ async function handleLoadSchema() {
   try {
     const { data } = await fetchSchemaByConnection(buildConnectionPayload())
     schemaPreview.value = data
+    syncModulePreview(data)
+    if (form.type === 'MYSQL') {
+      await loadMysqlTables()
+    }
     ElMessage.success(data.summary)
   } catch (error: any) {
     ElMessage.error(error?.userMessage ?? error?.response?.data?.message ?? '刷新结构失败')
   } finally {
     schemaLoading.value = false
+  }
+}
+
+async function handleRefreshModuleBrowser() {
+  moduleRefreshing.value = true
+  try {
+    if (form.type === 'MYSQL') {
+      await handleRefreshMysqlTables()
+      return
+    }
+    await handleLoadSchema()
+  } finally {
+    moduleRefreshing.value = false
   }
 }
 
@@ -708,12 +1019,73 @@ async function loadSnapshot() {
   }
 }
 
+async function loadModuleDataForCurrentType() {
+  if (form.type === 'MYSQL') {
+    await loadMysqlTables()
+    return
+  }
+  if (form.type === 'REDIS' || form.type === 'ELASTICSEARCH' || form.type === 'KAFKA' || form.type === 'HBASE') {
+    await handleLoadSchema()
+  }
+}
+
+async function loadMysqlTables() {
+  const { data } = await fetchMysqlTables(buildConnectionPayload())
+  mysqlTableList.value = data
+}
+
+async function handleRefreshMysqlTables() {
+  mysqlTableActionLoading.value = 'refresh'
+  try {
+    const { data } = await refreshMysqlTables(buildConnectionPayload())
+    mysqlTableList.value = data
+    ElMessage.success(`MySQL 表缓存已刷新，共 ${data.total} 张表`)
+  } catch (error: any) {
+    ElMessage.error(error?.userMessage ?? error?.response?.data?.message ?? '刷新 MySQL 表缓存失败')
+  } finally {
+    mysqlTableActionLoading.value = ''
+  }
+}
+
+async function handleViewMysqlTableSchema(tableName: string) {
+  mysqlTableActionLoading.value = `schema:${tableName}`
+  try {
+    const { data } = await fetchMysqlTableSchema({
+      connection: buildConnectionPayload(),
+      tableName
+    })
+    activeMysqlTableSchema.value = data
+    mysqlSchemaDialogVisible.value = true
+    ElMessage.success(`已加载 ${tableName} 的字段与索引`)
+  } catch (error: any) {
+    ElMessage.error(error?.userMessage ?? error?.response?.data?.message ?? '查看表结构失败')
+  } finally {
+    mysqlTableActionLoading.value = ''
+  }
+}
+
+async function handlePreviewMysqlTable(tableName: string) {
+  mysqlTableActionLoading.value = `preview:${tableName}`
+  try {
+    const { data } = await fetchMysqlTablePreview({
+      connection: buildConnectionPayload(),
+      tableName
+    })
+    activeMysqlTablePreview.value = data
+    ElMessage.success(`已查询 ${tableName} 前 20 条数据`)
+  } catch (error: any) {
+    ElMessage.error(error?.userMessage ?? error?.response?.data?.message ?? '查看表前 20 条失败')
+  } finally {
+    mysqlTableActionLoading.value = ''
+  }
+}
+
 function handleReset() {
-  switchDatasource(form.type)
+  void switchDatasource(form.type)
 }
 
 function applySuggestion(type: DatasourceType, prompt: string) {
-  switchDatasource(type, prompt)
+  void switchDatasource(type, prompt)
 }
 
 function restoreHistory(id: string) {
@@ -722,6 +1094,7 @@ function restoreHistory(id: string) {
   form.type = target.type
   result.value = target.payload
   schemaPreview.value = target.payload.schema
+  syncModulePreview(target.payload.schema)
   form.question = target.question
   form.rawQuery = ''
   testMessage.value = ''
@@ -796,6 +1169,29 @@ function formatTtl(ttl: number) {
   return `${ttl}s`
 }
 
+function normalizeFuzzyText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\-\s]+/g, '')
+}
+
+function fuzzyMatch(source: string, keyword: string) {
+  const normalizedSource = normalizeFuzzyText(source)
+  if (!keyword) return true
+  if (normalizedSource.includes(keyword)) return true
+
+  let sourceIndex = 0
+  let keywordIndex = 0
+  while (sourceIndex < normalizedSource.length && keywordIndex < keyword.length) {
+    if (normalizedSource[sourceIndex] === keyword[keywordIndex]) {
+      keywordIndex++
+    }
+    sourceIndex++
+  }
+  return keywordIndex === keyword.length
+}
+
 function resetConnection(type: DatasourceType) {
   Object.assign(connection, {
     type,
@@ -807,8 +1203,106 @@ function resetConnection(type: DatasourceType) {
     baseUrl: '',
     bootstrapServers: '',
     securityProtocol: '',
-    saslMechanism: ''
+    saslMechanism: '',
+    zookeeperQuorum: '',
+    zookeeperClientPort: undefined,
+    znodeParent: '',
+    namespace: ''
   })
+}
+
+function syncModulePreview(schema: SchemaResponse) {
+  const raw = asObject(schema.schema)
+
+  if (schema.type === 'REDIS') {
+    const keys = Object.entries(raw).map(([key, value]) => {
+      const record = asObject(value)
+      return {
+        key,
+        type: String(record.type ?? 'unknown'),
+        ttl: Number(record.ttl ?? -1)
+      }
+    })
+    redisKeyList.value = {
+      host: connection.host || '',
+      database: connection.database || '0',
+      total: keys.length,
+      keys
+    }
+    return
+  }
+
+  if (schema.type === 'KAFKA') {
+    const topics = Object.entries(raw).map(([name, value]) => {
+      const record = asObject(value)
+      const partitionLeaders = Array.isArray(record.partitionLeaders)
+        ? record.partitionLeaders.map((item) => {
+            const leader = asObject(item)
+            return {
+              partition: Number(leader.partition ?? 0),
+              leader: String(leader.leader ?? 'unknown')
+            }
+          })
+        : []
+      return {
+        name,
+        partitions: Number(record.partitions ?? 0),
+        internal: Boolean(record.internal),
+        replicationFactor: Number(record.replicationFactor ?? 0),
+        partitionLeaders
+      }
+    })
+    kafkaTopicList.value = {
+      bootstrapServers: connection.bootstrapServers || '',
+      total: topics.length,
+      topics
+    }
+    return
+  }
+
+  if (schema.type === 'ELASTICSEARCH') {
+    const indices = Object.entries(raw).map(([index, value]) => {
+      const record = asObject(value)
+      return {
+        index,
+        docsCount: String(record.docsCount ?? 0),
+        status: String(record.status ?? 'unknown')
+      }
+    })
+    esIndexList.value = {
+      baseUrl: connection.baseUrl || '',
+      total: indices.length,
+      indices
+    }
+    return
+  }
+
+  if (schema.type === 'HBASE') {
+    const tables = Object.entries(raw).map(([table, value]) => {
+      const record = asObject(value)
+      const columnFamilies = Array.isArray(record.columnFamilies)
+        ? record.columnFamilies.map((item) => {
+            const family = asObject(item)
+            return {
+              family: String(family.family ?? ''),
+              maxVersions: Number(family.maxVersions ?? 1),
+              compression: String(family.compression ?? 'NONE')
+            }
+          })
+        : []
+      return {
+        table,
+        namespace: String(record.namespace ?? 'default'),
+        columnFamilies
+      }
+    })
+    hbaseTableList.value = {
+      zookeeperQuorum: connection.zookeeperQuorum || '',
+      namespace: connection.namespace || 'default',
+      total: tables.length,
+      tables
+    }
+  }
 }
 
 function buildConnectionPayload(): ConnectionProfile {
@@ -827,6 +1321,14 @@ function buildConnectionPayload(): ConnectionProfile {
     if (connection.saslMechanism?.trim()) payload.saslMechanism = connection.saslMechanism.trim()
     if (connection.username?.trim()) payload.username = connection.username.trim()
     if (connection.password?.trim()) payload.password = connection.password
+    return payload
+  }
+
+  if (form.type === 'HBASE') {
+    if (connection.zookeeperQuorum?.trim()) payload.zookeeperQuorum = connection.zookeeperQuorum.trim()
+    if (typeof connection.zookeeperClientPort === 'number') payload.zookeeperClientPort = connection.zookeeperClientPort
+    if (connection.znodeParent?.trim()) payload.znodeParent = connection.znodeParent.trim()
+    if (connection.namespace?.trim()) payload.namespace = connection.namespace.trim()
     return payload
   }
 
@@ -861,7 +1363,7 @@ function buildConnectionPayload(): ConnectionProfile {
 
 .datasource-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -922,6 +1424,198 @@ function buildConnectionPayload(): ConnectionProfile {
   align-items: center;
   margin-bottom: 18px;
   flex-wrap: wrap;
+}
+
+.module-search-input {
+  width: min(320px, 100%);
+}
+
+.module-browser-stack {
+  margin-top: 6px;
+  margin-bottom: 18px;
+}
+
+.module-browser-card {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+  background: rgba(255, 252, 247, 0.92);
+}
+
+.module-browser-head {
+  margin-bottom: 12px;
+}
+
+.module-browser-head h3 {
+  margin: 0;
+}
+
+.module-browser-head p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.row-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: center;
+}
+
+.mysql-table-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.mysql-table-name {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.mysql-table-comment {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.row-actions :deep(.el-button) {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.mysql-detail-block {
+  margin-top: 16px;
+}
+
+.mysql-index-table {
+  margin-top: 12px;
+}
+
+:deep(.mysql-schema-dialog) {
+  border-radius: 28px;
+  overflow: hidden;
+}
+
+:deep(.mysql-schema-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 0;
+}
+
+:deep(.mysql-schema-dialog .el-dialog__body) {
+  padding: 0 0 8px;
+}
+
+:deep(.mysql-schema-dialog .el-dialog__headerbtn) {
+  top: 20px;
+  right: 20px;
+}
+
+.mysql-schema-dialog__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 26px 28px 20px;
+  background:
+    linear-gradient(140deg, rgba(184, 92, 56, 0.12), rgba(31, 107, 103, 0.08)),
+    linear-gradient(180deg, rgba(255, 251, 246, 0.98), rgba(255, 248, 241, 0.94));
+  border-bottom: 1px solid rgba(92, 59, 32, 0.08);
+}
+
+.mysql-schema-dialog__eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
+
+.mysql-schema-dialog__header h3 {
+  margin: 10px 0 0;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.mysql-schema-dialog__header p {
+  margin: 10px 0 0;
+  max-width: 700px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.mysql-schema-dialog__stats {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.mysql-schema-stat {
+  min-width: 92px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(184, 92, 56, 0.14);
+  text-align: center;
+  backdrop-filter: blur(6px);
+}
+
+.mysql-schema-stat strong {
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--accent-deep);
+}
+
+.mysql-schema-stat span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mysql-schema-dialog__body {
+  display: grid;
+  gap: 16px;
+  padding: 20px 28px 28px;
+  max-height: min(72vh, 860px);
+  overflow: auto;
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(250, 244, 237, 0.92));
+}
+
+.mysql-schema-panel {
+  border: 1px solid rgba(92, 59, 32, 0.08);
+  border-radius: 22px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.mysql-schema-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.mysql-schema-panel__head h4 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.mysql-schema-panel__head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .ghost-button {
@@ -1050,7 +1744,8 @@ function buildConnectionPayload(): ConnectionProfile {
 .mysql-grid,
 .redis-grid,
 .es-grid,
-.kafka-grid {
+.kafka-grid,
+.hbase-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1112,6 +1807,17 @@ function buildConnectionPayload(): ConnectionProfile {
   line-height: 1.5;
 }
 
+.datasource-chip.disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.datasource-switching-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .schema-more {
   margin-top: 10px;
 }
@@ -1149,7 +1855,8 @@ function buildConnectionPayload(): ConnectionProfile {
   .mysql-grid,
   .redis-grid,
   .es-grid,
-  .kafka-grid {
+  .kafka-grid,
+  .hbase-grid {
     grid-template-columns: 1fr 1fr;
   }
 }
@@ -1160,13 +1867,27 @@ function buildConnectionPayload(): ConnectionProfile {
   .mysql-grid,
   .redis-grid,
   .es-grid,
-  .kafka-grid {
+  .kafka-grid,
+  .hbase-grid {
     grid-template-columns: 1fr;
   }
 
   .schema-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .mysql-schema-dialog__header,
+  .mysql-schema-panel__head {
+    flex-direction: column;
+  }
+
+  .mysql-schema-dialog__body {
+    padding: 16px;
+  }
+
+  .mysql-schema-dialog__header {
+    padding: 22px 16px 18px;
   }
 }
 </style>

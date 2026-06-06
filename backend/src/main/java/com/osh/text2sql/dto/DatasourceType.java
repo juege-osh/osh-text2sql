@@ -4,5 +4,6 @@ public enum DatasourceType {
     MYSQL,
     REDIS,
     ELASTICSEARCH,
-    KAFKA
+    KAFKA,
+    HBASE
 }

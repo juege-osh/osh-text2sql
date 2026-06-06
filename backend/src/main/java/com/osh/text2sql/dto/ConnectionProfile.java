@@ -25,4 +25,12 @@ public class ConnectionProfile {
     private String securityProtocol;
 
     private String saslMechanism;
+
+    private String zookeeperQuorum;
+
+    private Integer zookeeperClientPort;
+
+    private String znodeParent;
+
+    private String namespace;
 }

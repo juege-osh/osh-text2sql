@@ -13,7 +13,8 @@ public final class KafkaQueryValidator {
     private static final Set<String> ALLOWED_OPERATIONS = Set.of(
         "LIST_TOPICS",
         "DESCRIBE_TOPIC",
-        "READ_MESSAGES"
+        "READ_MESSAGES",
+        "COUNT_UNCONSUMED_MESSAGES"
     );
 
     private KafkaQueryValidator() {
@@ -29,7 +30,7 @@ public final class KafkaQueryValidator {
         }
         String operation = spec.getOperation().trim().toUpperCase(Locale.ROOT);
         if (!ALLOWED_OPERATIONS.contains(operation)) {
-            throw new BadRequestException("Kafka 仅支持 LIST_TOPICS、DESCRIBE_TOPIC、READ_MESSAGES");
+            throw new BadRequestException("Kafka 仅支持 LIST_TOPICS、DESCRIBE_TOPIC、READ_MESSAGES、COUNT_UNCONSUMED_MESSAGES");
         }
         spec.setOperation(operation);
 
@@ -50,6 +51,11 @@ public final class KafkaQueryValidator {
             case "READ_MESSAGES" -> {
                 requireTopic(spec);
                 normalizeReadSpec(spec);
+            }
+            case "COUNT_UNCONSUMED_MESSAGES" -> {
+                requireTopic(spec);
+                requireConsumerGroup(spec);
+                normalizeFilterSpec(spec);
             }
             default -> throw new BadRequestException("不支持的 Kafka 操作");
         }
@@ -82,6 +88,17 @@ public final class KafkaQueryValidator {
         if ("OFFSET".equals(spec.getFrom()) && spec.getOffset() == null) {
             throw new BadRequestException("当 from=OFFSET 时必须提供 offset");
         }
+        normalizeFilterSpec(spec);
+    }
+
+    private static void requireConsumerGroup(KafkaQuerySpec spec) {
+        if (StrUtil.isBlank(spec.getConsumerGroup())) {
+            throw new BadRequestException("Kafka 查询 DSL 缺少 consumerGroup");
+        }
+        spec.setConsumerGroup(spec.getConsumerGroup().trim());
+    }
+
+    private static void normalizeFilterSpec(KafkaQuerySpec spec) {
         if (StrUtil.isNotBlank(spec.getKeyContains())) {
             spec.setKeyContains(spec.getKeyContains().trim());
         }

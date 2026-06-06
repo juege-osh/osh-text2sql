@@ -4,3 +4,5 @@ backend/target/
 backend/.env.local
 .logs/
 .DS_Store
+
+.idea
