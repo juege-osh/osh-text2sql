@@ -111,6 +111,7 @@ public class Text2SqlProperties {
         private String password = "123456";
         private Long libId = 2063135636288729089L;
         private String module = "es-schema";
+        private int tokenRefreshAheadSeconds = 300;
         private QaRedisProperties redis = new QaRedisProperties();
     }
 

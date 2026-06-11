@@ -21,10 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
-import redis.clients.jedis.exceptions.JedisDataException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -47,12 +43,15 @@ public class QaKnowledgeImportService {
     private final Text2SqlProperties properties;
     private final ConnectionProfileResolver profileResolver;
     private final ElasticsearchIntrospector elasticsearchIntrospector;
+    private final QaConsumerTokenManager qaConsumerTokenManager;
     public QaKnowledgeImportService(Text2SqlProperties properties,
                                     ConnectionProfileResolver profileResolver,
-                                    ElasticsearchIntrospector elasticsearchIntrospector) {
+                                    ElasticsearchIntrospector elasticsearchIntrospector,
+                                    QaConsumerTokenManager qaConsumerTokenManager) {
         this.properties = properties;
         this.profileResolver = profileResolver;
         this.elasticsearchIntrospector = elasticsearchIntrospector;
+        this.qaConsumerTokenManager = qaConsumerTokenManager;
     }
 
     public KnowledgeImportResponse importElasticsearchMappings(KnowledgeImportRequest request) {
@@ -65,7 +64,7 @@ public class QaKnowledgeImportService {
 
         String markdown = buildMarkdown(esTemplate, profile, indices);
         String qaBaseUrl = normalizeQaBaseUrl(request.getQaBaseUrl());
-        String token = loginAndGetToken(qaBaseUrl, request.getQaUsername(), request.getQaPassword());
+        String token = resolveToken(qaBaseUrl, request.getQaUsername(), request.getQaPassword());
         UploadResult uploadResult = uploadMarkdown(qaBaseUrl, token, request.getModule(), markdown);
         addKnowledgeFile(qaBaseUrl, token, request.getLibId(), uploadResult.storePath(), uploadResult.originalFilename());
 
@@ -105,7 +104,7 @@ public class QaKnowledgeImportService {
                                                                 String fileName,
                                                                 String markdown) {
         String normalizedBaseUrl = normalizeQaBaseUrl(qaBaseUrl);
-        String token = loginAndGetToken(normalizedBaseUrl, username, password);
+        String token = resolveToken(normalizedBaseUrl, username, password);
         UploadResult uploadResult = uploadMarkdown(normalizedBaseUrl, token, module, markdown, fileName);
         addKnowledgeFile(normalizedBaseUrl, token, libId, uploadResult.storePath(), uploadResult.originalFilename());
         return KnowledgeImportResponse.builder()
@@ -128,7 +127,7 @@ public class QaKnowledgeImportService {
             throw new BadRequestException("没有可导入的知识文档");
         }
         String normalizedBaseUrl = normalizeQaBaseUrl(qaBaseUrl);
-        String token = loginAndGetToken(normalizedBaseUrl, username, password);
+        String token = resolveToken(normalizedBaseUrl, username, password);
         List<String> importedFiles = new ArrayList<>();
         String lastStorePath = null;
         for (Map.Entry<String, String> entry : documents.entrySet()) {
@@ -241,84 +240,15 @@ public class QaKnowledgeImportService {
         return configured;
     }
 
-    private String loginAndGetToken(String qaBaseUrl, String username, String password) {
-        RestTemplate restTemplate = new RestTemplate();
-        String captchaUrl = qaBaseUrl + "/consumer/user/getCode";
-        String loginUrl = qaBaseUrl + "/consumer/user/login";
-
-        Map<String, Object> captchaWrapper = restTemplate.getForObject(captchaUrl, Map.class);
-        Map<String, Object> captchaData = extractData(captchaWrapper);
-        String captchaId = Objects.toString(captchaData.get("captchaId"), "");
-        if (captchaId.isBlank()) {
-            throw new BadRequestException("获取 QA 验证码失败");
+    private String resolveToken(String qaBaseUrl, String username, String password) {
+        Text2SqlProperties.QaKnowledgeImportProperties qaConfig = properties.getQaKnowledgeImport();
+        boolean useCachedToken = Objects.equals(normalizeQaBaseUrl(qaConfig.getBaseUrl()), qaBaseUrl)
+            && Objects.equals(qaConfig.getUsername(), username)
+            && Objects.equals(qaConfig.getPassword(), password);
+        if (useCachedToken) {
+            return qaConsumerTokenManager.getValidToken();
         }
-        String captchaCode = fetchCaptchaCodeFromRedis(captchaId);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("username", username);
-        payload.put("pwd", password);
-        payload.put("captchaId", captchaId);
-        payload.put("code", captchaCode);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> response = restTemplate.exchange(
-            loginUrl,
-            HttpMethod.POST,
-            new HttpEntity<>(payload, headers),
-            Map.class
-        );
-        Map<String, Object> wrapper = response.getBody();
-        Map<String, Object> data = extractData(wrapper);
-        String token = Objects.toString(data.get("token"), "");
-        if (token.isBlank()) {
-            throw new BadRequestException("QA 登录成功但未拿到 token");
-        }
-        return token;
-    }
-
-    private String fetchCaptchaCodeFromRedis(String captchaId) {
-        Text2SqlProperties.QaRedisProperties redis = properties.getQaKnowledgeImport().getRedis();
-        JedisPoolConfig poolConfig = new JedisPoolConfig();
-        poolConfig.setMaxTotal(8);
-        try {
-            return fetchCaptchaCode(poolConfig, redis, captchaId, redis.getPassword());
-        } catch (JedisDataException exception) {
-            if (exception.getMessage() != null && exception.getMessage().contains("ERR invalid password")) {
-                return fetchCaptchaCode(poolConfig, redis, captchaId, null);
-            }
-            throw new BadRequestException("读取 QA 验证码失败: " + exception.getMessage());
-        } catch (BadRequestException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new BadRequestException("读取 QA 验证码失败: " + exception.getMessage());
-        }
-    }
-
-    private String fetchCaptchaCode(JedisPoolConfig poolConfig,
-                                    Text2SqlProperties.QaRedisProperties redis,
-                                    String captchaId,
-                                    String password) {
-        try (JedisPool pool = new JedisPool(poolConfig, redis.getHost(), redis.getPort(),
-            2000, password, redis.getDatabase());
-             Jedis jedis = pool.getResource()) {
-            String captchaCode = jedis.get(captchaId);
-            if (captchaCode == null || captchaCode.isBlank()) {
-                throw new BadRequestException("未在 Redis 中读取到 QA 验证码");
-            }
-            return normalizeCaptchaCode(captchaCode);
-        }
-    }
-
-    private String normalizeCaptchaCode(String captchaCode) {
-        String normalized = captchaCode.trim();
-        if (normalized.startsWith("\"") && normalized.endsWith("\"") && normalized.length() >= 2) {
-            normalized = normalized.substring(1, normalized.length() - 1);
-        }
-        normalized = normalized.replace("\\\"", "\"");
-        if (normalized.startsWith("\"") && normalized.endsWith("\"") && normalized.length() >= 2) {
-            normalized = normalized.substring(1, normalized.length() - 1);
-        }
-        return normalized;
+        throw new BadRequestException("当前仅支持使用 application.yml 中配置的默认 QA 账号");
     }
 
     private UploadResult uploadMarkdown(String qaBaseUrl, String token, String module, String markdown) {
