@@ -21,6 +21,8 @@ public class Text2SqlProperties {
 
     private QaKnowledgeImportProperties qaKnowledgeImport = new QaKnowledgeImportProperties();
 
+    private MysqlTableSelectorProperties mysqlTableSelector = new MysqlTableSelectorProperties();
+
     @Data
     public static class AiProperties {
         private String provider = "aicodee";
@@ -109,6 +111,7 @@ public class Text2SqlProperties {
         private String password = "123456";
         private Long libId = 2063135636288729089L;
         private String module = "es-schema";
+        private int tokenRefreshAheadSeconds = 300;
         private QaRedisProperties redis = new QaRedisProperties();
     }
 
@@ -119,5 +122,28 @@ public class Text2SqlProperties {
         private int port = 6379;
         private String password = "juegetech_88888888";
         private int database = 0;
+    }
+
+    @Data
+    public static class MysqlTableSelectorProperties {
+        private SelectorMode mode = SelectorMode.LOCAL;
+        private QaAssistantProperties qaAssistant = new QaAssistantProperties();
+    }
+
+    public enum SelectorMode {
+        LOCAL,
+        QA_ASSISTANT
+    }
+
+    @Data
+    public static class QaAssistantProperties {
+        private boolean enabled = false;
+        @NotBlank
+        private String baseUrl = "http://43.242.200.67";
+        private String username = "hope";
+        private String password = "123456";
+        private Long appId;
+        private String appKey;
+        private String chatId = "mysql-table-selector";
     }
 }
