@@ -4,12 +4,13 @@ server:
 spring:
   application:
     name: osh-text2sql-backend
-  redis:
-    host: 43.242.200.25
-    port: 56379
-    database: 0
-    password: ${secret.redis.password:juegetech_88888888}
-    timeout: 10s
+  data:
+    redis:
+      host: 43.242.200.25
+      port: 56379
+      database: 0
+      password: ${secret.redis.password:juegetech_88888888}
+      timeout: 10s
     lettuce:
       pool:
         min-idle: 0
